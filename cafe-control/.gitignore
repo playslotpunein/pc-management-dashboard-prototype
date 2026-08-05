@@ -1,0 +1,59 @@
+## .NET build output
+bin/
+obj/
+publish/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+artifacts/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.DotSettings.user
+
+## Local settings — machine specific, never committed
+appsettings.Development.json
+appsettings.Local.json
+*.local.json
+launchSettings.json
+
+## Build and test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.binlog
+*.coverage
+*.coveragexml
+BenchmarkDotNet.Artifacts/
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages/build/
+*.nuget.props
+*.nuget.targets
+
+## Native / debug artifacts
+*.pdb
+*.ilk
+*.meta
+*.obj
+*.pch
+*.tlog
+*.log
+
+## OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
