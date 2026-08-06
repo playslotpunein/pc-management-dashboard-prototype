@@ -108,15 +108,26 @@ if (-not (Test-Path -LiteralPath $watchdogExe)) {
 Write-Host '-> Creating service' -ForegroundColor Yellow
 
 # sc.exe parses "key= value" as two tokens: the space AFTER the '=' is required and
-# there must be no space before it. The path is wrapped in literal quotes so the
-# stored ImagePath is quoted — an unquoted path containing spaces ("C:\Program Files\...")
-# both fails to start and is the classic unquoted-service-path weakness.
-$binPath = "`"$watchdogExe`""
-
-& sc.exe create $ServiceName binPath= $binPath start= auto obj= LocalSystem DisplayName= $DisplayName
+# there must be no space before it.
+& sc.exe create $ServiceName binPath= $watchdogExe start= auto obj= LocalSystem DisplayName= $DisplayName
 
 if ($LASTEXITCODE -ne 0) {
     throw "sc.exe create failed (exit code $LASTEXITCODE)."
+}
+
+# Windows PowerShell strips embedded quotes when forwarding an argument to a native
+# executable, so however the command line is escaped, sc.exe ends up storing the path
+# unquoted. An unquoted ImagePath containing spaces is the unquoted-service-path
+# weakness: the SCM probes C:\Program.exe before C:\Program Files\... Writing the value
+# straight to the registry sidesteps shell quoting entirely.
+$serviceKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
+
+Set-ItemProperty -Path $serviceKey -Name ImagePath -Value "`"$watchdogExe`"" -Type ExpandString
+
+$storedPath = (Get-ItemProperty -Path $serviceKey -Name ImagePath).ImagePath
+
+if (-not $storedPath.StartsWith('"')) {
+    throw "ImagePath is still unquoted after correction: $storedPath"
 }
 
 & sc.exe description $ServiceName $Description
