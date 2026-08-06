@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, time, timedelta
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from sqlalchemy import select
 
 from playslot.clock import Clock
@@ -31,7 +31,9 @@ from playslot.engine.session_engine import (
     UnitNotFound,
 )
 from playslot.enums import SessionStatus, UnitState
-from playslot.models import Pricing, Sale, Session, Unit
+from playslot.models import Agent, Pricing, Sale, Session, Unit
+from playslot.security import new_device_token
+from playslot.ws import AgentHub
 from playslot.money import format_rupees
 from playslot.schemas import (
     BillRead,
@@ -51,6 +53,7 @@ from playslot.schemas import (
 
 engine_holder: dict[str, SessionEngine] = {}
 factory_holder: dict[str, object] = {}
+hub_holder: dict[str, AgentHub] = {}
 
 
 @contextlib.asynccontextmanager
@@ -61,10 +64,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     factory = session_factory(db_engine)
     factory_holder["factory"] = factory
 
+    clock = Clock()
+
+    # The hub is the engine's command sink: a lock decision goes straight out over the
+    # agent's socket without a cross-process hop.
+    hub = AgentHub(factory, venue_id=settings.venue_id, clock=clock)
+    hub_holder["hub"] = hub
+
     engine = SessionEngine(
         factory,
         venue_id=settings.venue_id,
-        clock=Clock(),
+        clock=clock,
+        command_sink=hub.command_sink,
         warning_seconds=settings.warning_seconds,
         no_show_timeout_minutes=settings.no_show_timeout_minutes,
     )
@@ -102,8 +113,18 @@ def get_factory():
     return factory_holder["factory"]
 
 
+def get_hub() -> AgentHub:
+    hub = hub_holder.get("hub")
+
+    if hub is None:
+        raise HTTPException(503, "Agent hub is not running")
+
+    return hub
+
+
 EngineDep = Annotated[SessionEngine, Depends(get_engine)]
 FactoryDep = Annotated[object, Depends(get_factory)]
+HubDep = Annotated[AgentHub, Depends(get_hub)]
 
 
 @app.exception_handler(UnitBusy)
@@ -346,3 +367,73 @@ async def list_pricing(factory: FactoryDep) -> list[PricingRead]:
         ).all()
 
         return [PricingRead.model_validate(row) for row in rows]
+
+
+# ------------------------------------------------------------------------ agents
+
+
+@app.post("/agents/enroll", status_code=201, tags=["agents"])
+async def enroll_agent(unit_id: str, factory: FactoryDep) -> dict[str, str]:
+    """Issue a device secret for a unit.
+
+    Returned in the clear exactly once, at enrolment, because the agent has to be
+    configured with it. Re-enrolling a unit rotates the secret and immediately
+    invalidates the old one, which is the revocation path for a stolen token.
+    """
+    with unit_of_work(factory) as db:
+        unit = db.get(Unit, unit_id)
+
+        if unit is None:
+            raise HTTPException(404, f"No unit {unit_id}")
+
+        token = new_device_token()
+
+        agent = db.scalars(select(Agent).where(Agent.unit_id == unit_id)).first()
+
+        if agent is None:
+            agent = Agent(venue_id=settings.venue_id, unit_id=unit_id, device_token=token)
+            db.add(agent)
+        else:
+            agent.device_token = token
+            agent.failed_verifications = 0
+
+        db.flush()
+
+        return {"unit_id": unit_id, "device_token": token}
+
+
+@app.get("/agents", tags=["agents"])
+async def list_agents(hub: HubDep, factory: FactoryDep) -> list[dict]:
+    """Enrolment and liveness per unit. The device token is never returned."""
+    with unit_of_work(factory) as db:
+        rows = db.scalars(
+            select(Agent).where(Agent.venue_id == settings.venue_id)
+        ).all()
+
+        return [
+            {
+                "unit_id": row.unit_id,
+                "agent_version": row.agent_version,
+                "last_heartbeat": row.last_heartbeat,
+                "failed_verifications": row.failed_verifications,
+                "connected": hub.is_connected(row.unit_id),
+            }
+            for row in rows
+        ]
+
+
+@app.websocket("/agent/{unit_id}")
+async def agent_socket(websocket: WebSocket, unit_id: str) -> None:
+    """The persistent agent link.
+
+    Authentication is the first message, not a query parameter or a header — a token in
+    a URL ends up in access logs and browser history. The agent sends a signed ``hello``
+    and nothing is registered until it verifies.
+    """
+    hub = hub_holder.get("hub")
+
+    if hub is None:
+        await websocket.close(code=1013)
+        return
+
+    await hub.serve(websocket, unit_id)

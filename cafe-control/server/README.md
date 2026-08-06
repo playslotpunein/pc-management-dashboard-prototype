@@ -44,7 +44,7 @@ environment variables. Override with `PLAYSLOT_`-prefixed variables or a `.env`:
 | `PLAYSLOT_BUSINESS_DAY_STARTS_HOUR` | `6` | An 11pm session belongs to that evening's shift report |
 
 ```bash
-./.venv/bin/python -m pytest        # 79 tests
+./.venv/bin/python -m pytest        # 118 tests
 ```
 
 ---
@@ -157,11 +157,107 @@ app bookings, which are not built. Nothing in this server calls Cashfree or Razo
 
 ---
 
+## The agent link
+
+`ws://<server>/agent/{unit_id}` — one persistent connection per unit, in the same process
+as the engine, so nothing sits between a lock decision and the command that carries it.
+
+### Enrolment
+
+```bash
+curl -X POST 'localhost:8000/agents/enroll?unit_id=<id>'
+# {"unit_id": "...", "device_token": "<64 hex chars>"}
+```
+
+The token is returned **once**. Re-enrolling rotates it and invalidates the old one —
+that is the revocation path for a stolen token.
+
+### Signing
+
+Every message, **in both directions**, is HMAC-SHA256 signed with that token. Signing only
+agent→server would leave the same hole viewed from the other end: a laptop on the café
+wifi could send an agent a forged unlock without ever touching the control server.
+
+The signed bytes are exactly:
+
+```
+unit_id \n message_type \n timestamp \n nonce \n body_json
+```
+
+`body_json` is JSON with **keys sorted, no whitespace** — `{"a":1,"b":2}`. The signature
+is lowercase hex. Newline is the separator because it cannot appear in a UUID, a type
+name or a number, so no field can be shifted into its neighbour.
+
+The C# side must produce identical bytes:
+
+```csharp
+var bodyJson = JsonSerializer.Serialize(body, new JsonSerializerOptions
+{
+    // Sorted keys, no indentation. A custom converter or an ordered
+    // dictionary is required — System.Text.Json does not sort by default.
+});
+
+var canonical = $"{unitId}\n{type}\n{timestamp}\n{nonce}\n{bodyJson}";
+
+using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(deviceToken));
+var sig = Convert.ToHexString(
+    hmac.ComputeHash(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+```
+
+Replay is blocked two ways: messages more than 30s from server time are rejected, and each
+nonce is accepted once per device inside that window. A signature alone would not stop a
+captured `unlock` being re-sent an hour later.
+
+### Messages
+
+**Agent → server.** First message must be `hello`; nothing is registered until it verifies,
+so an unauthenticated socket can never receive a state push. Then `heartbeat` every 5s.
+
+**Server → agent.** Exactly one type, `state`:
+
+```json
+{
+  "locked": true,
+  "unit_state": "locked",
+  "session_end_utc": "2026-08-06T18:00:00+00:00",
+  "grace_end_utc":   "2026-08-06T18:05:00+00:00"
+}
+```
+
+One idempotent message means reconnection needs no special handling — the agent
+reconnects, receives current state, and is correct. No missed-command replay, no ordering
+to reason about.
+
+### Why the end time is in there
+
+That field is what makes **Zone 5's fail-safe** possible. The agent caches it, so when it
+loses the server it waits sixty seconds, reads the cache and answers one question: is
+there paid time remaining? Yes — stay unlocked and keep counting down locally. No — lock.
+
+Without a pushed end time the agent has nothing to fail safe *on*, and a network blip
+either strands a paying customer behind a lock screen or hands out free play.
+
+⚠️ `session_end_utc: null` means **no deadline** (an open-ended walk-in), never "expired".
+An agent that reads null as expired would lock out a customer paying by the minute the
+moment the network hiccuped.
+
+### Delivery is best-effort, deliberately
+
+If an agent is not connected the command is logged and dropped, never queued. A dead link
+is the agent's problem to survive — it fails safe on its own. Queueing would deliver a
+stale lock to a machine whose customer has since paid for another hour.
+
+Failed verifications are written to `activity_log` as `agent.verification_failed` and
+increment `agents.failed_verifications`, so attempts are visible rather than merely
+rejected. A climbing count on one unit is an attack in progress, not a flaky clock.
+
+---
+
 ## Not built yet
 
-- **WebSocket to the agents.** The engine raises lock and unlock commands and hands them to
-  a `command_sink`; nothing is wired to it. Until then the agent's local control pipe
-  stands in.
+- **The C# side of the agent link.** The server end is built and tested; the agent still
+  speaks its local control pipe. It needs a WebSocket client, the canonical signing above,
+  and the cached end time driving its fail-safe.
 - **Dashboard rewiring.** The prototype still keeps its own timers in browser state. The
   `/units` response is shaped to replace them.
 - **Cloud sync.** The outbox fills; nothing drains it. Additive by design.
