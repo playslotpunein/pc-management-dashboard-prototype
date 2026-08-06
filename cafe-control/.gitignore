@@ -57,3 +57,19 @@ packages/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+## Python / control server
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.env
+
+## Local database — the venue's data, never committed
+server/data/
+*.db
+*.db-wal
+*.db-shm

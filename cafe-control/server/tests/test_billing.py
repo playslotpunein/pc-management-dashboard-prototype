@@ -1,0 +1,305 @@
+"""Billing tests.
+
+These encode the architecture's revenue rules. If one of these fails, money is wrong.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from playslot.engine.billing import Extension, compute_bill, elapsed_minutes
+from playslot.money import format_rupees, prorate_hourly, rupees, to_rupees
+
+START = datetime(2026, 8, 6, 17, 0, tzinfo=UTC)
+
+RATE_120 = rupees(120)  # a Battle Zone PC
+RATE_220 = rupees(220)  # a Pro Arena rig
+
+
+def at(**kwargs) -> datetime:
+    return START + timedelta(**kwargs)
+
+
+# --------------------------------------------------------------------------- money
+
+
+class TestMoney:
+    def test_rupees_are_exact_paise(self):
+        assert rupees(120) == 12_000
+        assert rupees("0.10") == 10
+        assert rupees(0.1) == 10
+
+    def test_float_drift_does_not_reach_the_total(self):
+        # The reason money is integers: summing 0.10 as a float ten times is not 1.00.
+        assert sum(rupees("0.10") for _ in range(10)) == rupees(1)
+
+    def test_rounding_is_half_up_not_bankers(self):
+        # Python's round() would give 62 here; a customer shown ₹62.50 pays ₹63.
+        assert to_rupees(6250) == pytest.approx(to_rupees(6250))
+        assert prorate_hourly(rupees(125), 30) == rupees("62.50")
+
+    def test_prorate_multiplies_before_dividing(self):
+        # ₹120/hr for 7 minutes is exactly ₹14. Dividing first loses precision.
+        assert prorate_hourly(RATE_120, 7) == rupees(14)
+
+    def test_prorate_rejects_negative_time(self):
+        # A clock adjustment must never produce a credit.
+        assert prorate_hourly(RATE_120, -30) == 0
+
+    def test_formatting_groups_thousands(self):
+        assert format_rupees(rupees(1234.5)) == "₹1,234.50"
+
+
+# --------------------------------------------------------------------------- elapsed
+
+
+class TestElapsedMinutes:
+    def test_part_minutes_round_up(self):
+        # A part-minute is a minute the unit was not available to anyone else.
+        assert elapsed_minutes(START, at(seconds=61)) == 2
+
+    def test_exact_minute_does_not_round_up(self):
+        assert elapsed_minutes(START, at(minutes=60)) == 60
+
+    def test_end_before_start_is_zero(self):
+        assert elapsed_minutes(START, at(minutes=-10)) == 0
+
+    def test_naive_datetime_is_rejected(self):
+        # Silently assuming UTC is how a bill ends up 5.5 hours wrong in IST.
+        with pytest.raises(ValueError, match="Naive datetime"):
+            elapsed_minutes(START, datetime(2026, 8, 6, 18, 0))
+
+
+# --------------------------------------------------------------------------- base
+
+
+class TestBaseCharge:
+    def test_full_hour_at_the_snapshot_rate(self):
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=60),
+        )
+
+        assert bill.total_paise == rupees(120)
+        assert bill.booked_minutes == 60
+        assert bill.overtime_minutes == 0
+
+    def test_leaving_early_still_pays_the_booked_time(self):
+        # Booked an hour, left at forty minutes. No refund — they bought the hour.
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=40),
+        )
+
+        assert bill.total_paise == rupees(120)
+        assert bill.actual_minutes == 40
+
+    def test_open_ended_walk_in_bills_time_used(self):
+        # No booked duration: the base is the time actually used, not overtime.
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=0,
+            started_at=START,
+            ended_at=at(minutes=45),
+        )
+
+        assert bill.total_paise == rupees(90)
+        assert bill.overtime_minutes == 0
+        assert bill.line("overtime") is None
+
+
+# --------------------------------------------------------------------- rate snapshot
+
+
+class TestRateSnapshot:
+    def test_a_later_price_rise_cannot_reach_a_running_session(self):
+        """The doc's auditability rule, stated as a test.
+
+        A session that started at 5pm on the ₹120 rate bills at ₹120 even though the
+        pricing row now says ₹220. The engine literally cannot do otherwise: it is
+        never given the current rate.
+        """
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=60),
+        )
+
+        assert bill.total_paise == rupees(120)
+        assert bill.total_paise != rupees(220)
+
+
+# --------------------------------------------------------------------- extensions
+
+
+class TestExtensions:
+    def test_each_extension_is_its_own_line(self):
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=90),
+            extensions=[
+                Extension(minutes=15, granted_at=at(minutes=55), rate_snapshot_paise=RATE_120),
+                Extension(minutes=15, granted_at=at(minutes=70), rate_snapshot_paise=RATE_120),
+            ],
+        )
+
+        extension_lines = [line for line in bill.lines if line.kind == "extension"]
+
+        assert len(extension_lines) == 2
+        assert all(line.amount_paise == rupees(30) for line in extension_lines)
+        assert bill.total_paise == rupees(180)
+        assert bill.booked_minutes == 90
+
+    def test_extension_pushes_back_the_overtime_boundary(self):
+        # 60 booked + 30 extended = 90, plus 5 grace. Ending at 92 is not overtime.
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=92),
+            extensions=[
+                Extension(minutes=30, granted_at=at(minutes=55), rate_snapshot_paise=RATE_120)
+            ],
+            overtime_rate_paise_per_minute=rupees(5),
+        )
+
+        assert bill.overtime_minutes == 0
+        assert bill.total_paise == rupees(180)
+
+    def test_an_extension_may_carry_its_own_rate(self):
+        # A goodwill discount stays visible as its own line rather than being averaged in.
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=90),
+            extensions=[
+                Extension(minutes=30, granted_at=at(minutes=55), rate_snapshot_paise=rupees(60))
+            ],
+        )
+
+        assert bill.line("extension").amount_paise == rupees(30)
+        assert bill.total_paise == rupees(150)
+
+
+# ----------------------------------------------------------------------- overtime
+
+
+class TestOvertimeAndGrace:
+    def test_grace_is_free(self):
+        # Five minutes past expiry, inside grace. The courtesy costs nothing.
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=65),
+            grace_minutes=5,
+            overtime_rate_paise_per_minute=rupees(5),
+        )
+
+        assert bill.overtime_minutes == 0
+        assert bill.total_paise == rupees(120)
+
+    def test_overtime_starts_only_after_grace_is_consumed(self):
+        # 60 booked + 5 grace = 65 free. Ending at 75 bills 10 overtime minutes.
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=75),
+            grace_minutes=5,
+            overtime_rate_paise_per_minute=rupees(5),
+        )
+
+        assert bill.overtime_minutes == 10
+        assert bill.line("overtime").amount_paise == rupees(50)
+        assert bill.total_paise == rupees(170)
+
+    def test_no_overtime_line_when_the_venue_does_not_charge_it(self):
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=90),
+            overtime_rate_paise_per_minute=0,
+        )
+
+        assert bill.overtime_minutes == 25
+        assert bill.line("overtime") is None
+        assert bill.total_paise == rupees(120)
+
+
+# ---------------------------------------------------------------------- surcharge
+
+
+class TestControllerSurcharge:
+    def test_surcharge_is_per_controller_and_prorated(self):
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_220,
+            duration_minutes=30,
+            started_at=START,
+            ended_at=at(minutes=30),
+            controller_surcharge_paise_per_hour=rupees(40),
+            extra_controllers=2,
+        )
+
+        # ₹40/hr × 2 controllers × half an hour.
+        assert bill.line("controller_surcharge").amount_paise == rupees(40)
+        assert bill.total_paise == rupees(150)
+
+    def test_no_surcharge_line_without_extra_controllers(self):
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_220,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=60),
+            controller_surcharge_paise_per_hour=rupees(40),
+            extra_controllers=0,
+        )
+
+        assert bill.line("controller_surcharge") is None
+
+
+# ------------------------------------------------------------------------ totals
+
+
+class TestTotalIntegrity:
+    def test_total_is_always_the_sum_of_the_lines(self):
+        """The auditability guarantee: nothing is added outside a line."""
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_220,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=100),
+            extensions=[
+                Extension(minutes=20, granted_at=at(minutes=58), rate_snapshot_paise=RATE_220)
+            ],
+            grace_minutes=5,
+            overtime_rate_paise_per_minute=rupees(8),
+            controller_surcharge_paise_per_hour=rupees(40),
+            extra_controllers=1,
+        )
+
+        assert bill.total_paise == sum(line.amount_paise for line in bill.lines)
+        assert bill.total_paise > 0
+
+    def test_every_amount_is_an_integer(self):
+        # A float anywhere in the breakdown means drift downstream.
+        bill = compute_bill(
+            rate_snapshot_paise=rupees(99.99),
+            duration_minutes=37,
+            started_at=START,
+            ended_at=at(minutes=37),
+        )
+
+        assert isinstance(bill.total_paise, int)
+        assert all(isinstance(line.amount_paise, int) for line in bill.lines)
