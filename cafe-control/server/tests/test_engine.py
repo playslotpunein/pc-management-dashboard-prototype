@@ -154,22 +154,24 @@ class TestTheCountdown:
         assert unit_state(seeded, PC) is UnitState.WARNING
         assert any(a.kind is AlertKind.FIVE_MINUTE_WARNING for a in result.alerts)
 
-        # The unit stays unlocked through the warning.
-        assert commands == []
+        # The unit stays unlocked through the warning. A state push at session start is
+        # expected and carries the end time that seeds the agent's fail-safe cache, so
+        # the invariant is that nothing has asked for a LOCK — not that nothing was sent.
+        assert not any(lock for _, lock in commands)
 
         # Timer hits zero: overtime, grace running, still unlocked.
         clock.advance(minutes=5)
         result = await engine.tick()
         assert unit_state(seeded, PC) is UnitState.OVERTIME
         assert any(a.kind is AlertKind.EXPIRED for a in result.alerts)
-        assert commands == []
+        assert not any(lock for _, lock in commands)
 
         # Grace consumed: now, and only now, it locks.
         clock.advance(minutes=5, seconds=1)
         result = await engine.tick()
         assert unit_state(seeded, PC) is UnitState.LOCKED
         assert any(a.kind is AlertKind.GRACE_TIMEOUT for a in result.alerts)
-        assert commands == [(PC, True)]
+        assert commands[-1] == (PC, True)
 
     async def test_alerts_do_not_repeat_every_tick(self, engine, clock):
         engine.start_session(unit_id=PC, duration_minutes=60)

@@ -1,0 +1,105 @@
+{
+  "secret": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "cases": [
+    {
+      "name": "hello",
+      "unit_id": "unit-pc-01",
+      "type": "hello",
+      "ts": 1780000000,
+      "nonce": "a1b2c3d4e5f60718",
+      "body": {
+        "agent_version": "1.0.0"
+      },
+      "canonical": "unit-pc-01\nhello\n1780000000\na1b2c3d4e5f60718\n{\"agent_version\":\"1.0.0\"}",
+      "sig": "742069f56b94530e8d9b5ca4f46ee0a11a39c918e9ef412e6b5112403413a729"
+    },
+    {
+      "name": "heartbeat",
+      "unit_id": "unit-pc-01",
+      "type": "heartbeat",
+      "ts": 1780000005,
+      "nonce": "00112233445566778899aabbccddeeff",
+      "body": {
+        "agent_version": "1.0.0",
+        "state": "active",
+        "remaining_seconds": 1234
+      },
+      "canonical": "unit-pc-01\nheartbeat\n1780000005\n00112233445566778899aabbccddeeff\n{\"agent_version\":\"1.0.0\",\"remaining_seconds\":1234,\"state\":\"active\"}",
+      "sig": "e83e6f12547bffc5926a671339d4f0cb57c9f93b76d0bc6b64ec89dca3a69848"
+    },
+    {
+      "name": "key-order",
+      "unit_id": "unit-pc-01",
+      "type": "heartbeat",
+      "ts": 1780000010,
+      "nonce": "zzz",
+      "body": {
+        "z": 1,
+        "a": 2,
+        "m": 3
+      },
+      "canonical": "unit-pc-01\nheartbeat\n1780000010\nzzz\n{\"a\":2,\"m\":3,\"z\":1}",
+      "sig": "be4e6667fbbdaccd81b2d7289452bbb56d7b07b60886ccf5a13e8e0b8b62532f"
+    },
+    {
+      "name": "empty-body",
+      "unit_id": "unit-pc-01",
+      "type": "hello",
+      "ts": 1780000015,
+      "nonce": "n",
+      "body": {},
+      "canonical": "unit-pc-01\nhello\n1780000015\nn\n{}",
+      "sig": "034440b1ee6eb03399c00b7986a3598ba9a93fed359529c4423c7e6236954682"
+    },
+    {
+      "name": "booleans-and-null",
+      "unit_id": "unit-ps5-02",
+      "type": "state",
+      "ts": 1780000020,
+      "nonce": "n2",
+      "body": {
+        "locked": true,
+        "unit_state": "locked",
+        "session_end_utc": null
+      },
+      "canonical": "unit-ps5-02\nstate\n1780000020\nn2\n{\"locked\":true,\"session_end_utc\":null,\"unit_state\":\"locked\"}",
+      "sig": "7ab7235742cbf245d9ef8eae25258e53bda2fcb74ec2e441f75bd7272b74cf1d"
+    },
+    {
+      "name": "non-ascii",
+      "unit_id": "unit-pc-03",
+      "type": "heartbeat",
+      "ts": 1780000025,
+      "nonce": "n3",
+      "body": {
+        "customer_ref": "Rohan Mhatre — ₹120 · टेस्ट"
+      },
+      "canonical": "unit-pc-03\nheartbeat\n1780000025\nn3\n{\"customer_ref\":\"Rohan Mhatre — ₹120 · टेस्ट\"}",
+      "sig": "10a7000f50491517c2634eb9a89fe4db73451c256966f2e967c9a2ad130749e3"
+    },
+    {
+      "name": "escapes",
+      "unit_id": "unit-pc-04",
+      "type": "heartbeat",
+      "ts": 1780000030,
+      "nonce": "n4",
+      "body": {
+        "note": "quote\" back\\slash <tag> line\nbreak"
+      },
+      "canonical": "unit-pc-04\nheartbeat\n1780000030\nn4\n{\"note\":\"quote\\\" back\\\\slash <tag> line\\nbreak\"}",
+      "sig": "6d7e474f6a2f33df2192a3ac444dde78299966df77c3a915b128af3b0667a9f4"
+    },
+    {
+      "name": "negative-int",
+      "unit_id": "unit-pc-05",
+      "type": "heartbeat",
+      "ts": 1780000035,
+      "nonce": "n5",
+      "body": {
+        "remaining_seconds": -42
+      },
+      "canonical": "unit-pc-05\nheartbeat\n1780000035\nn5\n{\"remaining_seconds\":-42}",
+      "sig": "d3a26df77caf71593e27aa5603af44eb39763c79eb92e2161bf05c3c27ce9545"
+    }
+  ]
+}

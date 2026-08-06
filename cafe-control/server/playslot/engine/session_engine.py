@@ -257,6 +257,12 @@ class SessionEngine:
 
             unit.current_session_id = session.id
 
+            # Push fresh state to the agent even though the lock state has not changed.
+            # The body carries the session end time, and the agent's fail-safe depends on
+            # having it: without this its cache still reads "no session", so if the link
+            # dropped mid-session it would never lock however long the customer stayed.
+            self._pending.append((unit.id, False))
+
             self._enqueue(
                 db,
                 "session.started",
@@ -359,6 +365,11 @@ class SessionEngine:
                 actor=actor,
                 session_id=session_id,
             )
+
+            # The deadline moved, so the agent's cached end time is now wrong. Left stale,
+            # its fail-safe would measure against the old deadline and lock a customer who
+            # has just paid for more time.
+            self._pending.append((unit.id, target is UnitState.LOCKED))
 
             self._enqueue(
                 db,
@@ -469,8 +480,12 @@ class SessionEngine:
             # and leaves. Once the session closes the tick stops looking at this unit,
             # so the unlock has to be queued here or the machine stays locked for
             # whoever sits down next.
-            if self._lock_state.get(session.unit_id):
-                self._pending.append((session.unit_id, False))
+            #
+            # Pushed unconditionally, not only when locked, because the message also
+            # clears the agent's cached end time. Leaving a stale one behind would have
+            # the agent fail safe against a finished session and lock the next customer
+            # against the previous one's deadline.
+            self._pending.append((session.unit_id, False))
 
             self._lock_state.pop(session.unit_id, None)
             self._ledger.forget(session_id)

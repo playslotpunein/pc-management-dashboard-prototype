@@ -59,6 +59,34 @@ internal sealed class AgentOptions
     /// <summary>Lock immediately on start, after N seconds. 0 disables. For demos.</summary>
     public int LockAfterSeconds { get; private set; }
 
+    // ---- Control server link ----
+
+    /// <summary>
+    /// Base WebSocket URL of the control server, e.g. ws://192.168.1.10:8000.
+    /// Empty means standalone: commands arrive only over the local control pipe.
+    /// </summary>
+    public string ServerUrl { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Per-device secret issued at enrolment. Every message in both directions is signed
+    /// with it. Without one the agent cannot talk to the control server at all.
+    /// </summary>
+    public string DeviceToken { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// How long the link must be down before the fail-safe acts. Most disconnects last a
+    /// second or two, and locking a paying customer over a blip is worse than the blip.
+    /// </summary>
+    public int FailSafeDelaySeconds { get; private set; } = 60;
+
+    /// <summary>Where the cached session end time is persisted across restarts.</summary>
+    public string SessionCachePath { get; private set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "PlaySlot",
+        "session-cache.json");
+
+    public const string Version = "1.0.0";
+
     /// <summary>
     /// How often a held lock re-applies itself: hooks reinstalled, overlay raised.
     /// Windows can drop a low-level hook silently and the overlay can lose the
@@ -81,6 +109,9 @@ internal sealed class AgentOptions
         if (GetValue(args, "--pipe") is { } pipe) options.HeartbeatPipeName = pipe;
         if (GetValue(args, "--control-pipe") is { } control) options.ControlPipeName = control;
         if (GetValue(args, "--control-token") is { } token) options.ControlToken = token;
+        if (GetValue(args, "--server-url") is { } server) options.ServerUrl = server;
+        if (GetValue(args, "--device-token") is { } device) options.DeviceToken = device;
+        if (GetValue(args, "--session-cache") is { } cache) options.SessionCachePath = cache;
         if (GetValue(args, "--unit") is { } unit) options.UnitId = unit;
         if (GetValue(args, "--lock-title") is { } title) options.LockTitle = title;
         if (GetValue(args, "--lock-message") is { } message) options.LockMessage = message;
@@ -90,6 +121,8 @@ internal sealed class AgentOptions
         options.HangAfterSeconds = ParseInt(GetValue(args, "--hang-after"), 0);
         options.MaxLockSeconds = ParseInt(GetValue(args, "--max-lock-seconds"), options.MaxLockSeconds, allowZero: true);
         options.LockAfterSeconds = ParseInt(GetValue(args, "--lock-after"), 0);
+        options.FailSafeDelaySeconds =
+            ParseInt(GetValue(args, "--failsafe-delay"), options.FailSafeDelaySeconds, allowZero: true);
         options.ReassertSeconds = ParseInt(GetValue(args, "--reassert-seconds"), options.ReassertSeconds, allowZero: true);
 
         if (HasFlag(args, "--no-heartbeat")) options.HeartbeatEnabled = false;
@@ -118,6 +151,12 @@ internal sealed class AgentOptions
             --control-pipe=<name>     pipe name (default PlaySlotAgentControl)
             --control-token=<secret>  require this token on inbound commands
             --no-control-pipe         do not listen for commands at all
+
+          Control server (replaces the control pipe once enrolled)
+            --server-url=<url>        e.g. ws://192.168.1.10:8000
+            --device-token=<secret>   issued by POST /agents/enroll
+            --failsafe-delay=<secs>   link-down grace before failing safe (default 60)
+            --session-cache=<path>    where the cached end time is persisted
 
           Watchdog contract
             --pipe=<name>             heartbeat pipe (default PlaySlotAgentHeartbeat)

@@ -297,3 +297,75 @@ class TestFailSafePayload:
 
         assert body["locked"] is False
         assert body["session_end_utc"] is None
+
+
+class TestCacheSeeding:
+    async def test_starting_a_session_pushes_the_end_time(self, wired, clock):
+        """The agent's fail-safe is useless without this.
+
+        Starting a session changes no lock state, so an engine that only pushed on lock
+        transitions would leave the agent's cache reading "no session" — and it would
+        never lock, however long the customer stayed after the link dropped.
+        """
+        client, unit_id, token, engine = (
+            wired["client"], wired["unit_id"], wired["token"], wired["engine"]
+        )
+
+        with client.websocket_connect(f"/agent/{unit_id}") as socket:
+            socket.send_json(hello(token, unit_id))
+
+            idle = socket.receive_json()["body"]
+            assert idle["session_end_utc"] is None
+
+            client.post("/sessions", json={"unit_id": unit_id, "duration_minutes": 60})
+            await engine.tick()
+
+            seeded = socket.receive_json()["body"]
+
+        assert seeded["locked"] is False
+        assert seeded["session_end_utc"].startswith("2026-08-06T18:00")
+
+    async def test_ending_a_session_clears_the_cached_end_time(self, wired, clock):
+        """Otherwise the next customer is failed safe against the last one's deadline."""
+        client, unit_id, token, engine = (
+            wired["client"], wired["unit_id"], wired["token"], wired["engine"]
+        )
+
+        session_id = client.post(
+            "/sessions", json={"unit_id": unit_id, "duration_minutes": 60}
+        ).json()["id"]
+
+        with client.websocket_connect(f"/agent/{unit_id}") as socket:
+            socket.send_json(hello(token, unit_id))
+            assert socket.receive_json()["body"]["session_end_utc"] is not None
+
+            clock.advance(minutes=30)
+            client.post(f"/sessions/{session_id}/end", json={})
+            await engine.tick()
+
+            cleared = socket.receive_json()["body"]
+
+        assert cleared["locked"] is False
+        assert cleared["session_end_utc"] is None
+
+    async def test_extending_pushes_the_new_deadline(self, wired, clock):
+        client, unit_id, token, engine = (
+            wired["client"], wired["unit_id"], wired["token"], wired["engine"]
+        )
+
+        session_id = client.post(
+            "/sessions", json={"unit_id": unit_id, "duration_minutes": 60}
+        ).json()["id"]
+
+        with client.websocket_connect(f"/agent/{unit_id}") as socket:
+            socket.send_json(hello(token, unit_id))
+            first = socket.receive_json()["body"]
+            assert first["session_end_utc"].startswith("2026-08-06T18:00")
+
+            client.post(f"/sessions/{session_id}/extend", json={"minutes": 30})
+            await engine.tick()
+
+            extended = socket.receive_json()["body"]
+
+        # Stale here would have the agent lock someone who just paid for more time.
+        assert extended["session_end_utc"].startswith("2026-08-06T18:30")

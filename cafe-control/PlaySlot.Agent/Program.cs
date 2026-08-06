@@ -63,6 +63,29 @@ internal static class Program
         var control = new ControlServer(options, uiContext, command => Handle(controller, command));
         _ = Task.Run(() => control.RunAsync(shutdown.Token), shutdown.Token);
 
+        // The control server link. Replaces the pipe as the authority on lock state once
+        // the unit is enrolled; the pipe stays available for local testing until it is
+        // switched off with --no-control-pipe.
+        var cache = new SessionCache(options.SessionCachePath);
+
+        using var socket = new ControlSocket(
+            options,
+            cache,
+            uiContext,
+            (locked, reason) =>
+            {
+                if (locked)
+                {
+                    controller.Lock(reason);
+                }
+                else
+                {
+                    controller.Unlock(reason);
+                }
+            });
+
+        _ = Task.Run(() => socket.RunAsync(shutdown.Token), shutdown.Token);
+
         if (options.LockAfterSeconds > 0)
         {
             ScheduleDemoLock(controller, options.LockAfterSeconds);
@@ -150,6 +173,8 @@ internal static class Program
         Log.Raw($"  Monitors     : {Screen.AllScreens.Length}");
         Log.Raw($"  Heartbeat    : {(options.HeartbeatEnabled ? $"every {options.HeartbeatIntervalSeconds}s" : "DISABLED")}");
         Log.Raw($"  Control pipe : {(options.ControlPipeEnabled ? options.ControlPipeName : "disabled")}");
+        Log.Raw($"  Server       : {(string.IsNullOrWhiteSpace(options.ServerUrl) ? "standalone (no control server)" : options.ServerUrl)}");
+        Log.Raw($"  Fail-safe    : lock after {options.FailSafeDelaySeconds}s offline if paid time has run out");
         Log.Raw($"  Panic hatch  : {PanicHatch.Describe(options.MaxLockSeconds, options.PanicComboEnabled)}");
         Log.Raw($"  Log file     : {Log.FilePath}");
         Log.Raw(new string('-', 58));

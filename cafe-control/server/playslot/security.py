@@ -70,12 +70,56 @@ def new_nonce() -> str:
 def canonical_bytes(
     *, unit_id: str, message_type: str, timestamp: int, nonce: str, body: dict[str, Any]
 ) -> bytes:
-    """The exact bytes that get signed. Must match the agent's implementation."""
-    encoded_body = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    """The exact bytes that get signed. Must match the agent's implementation.
+
+    ``ensure_ascii=False`` is load-bearing. Python's default escapes non-ASCII as
+    ``\\uXXXX`` while .NET writes raw UTF-8, so a customer reference containing a
+    non-ASCII character would sign differently on the two sides and every message from
+    that unit would fail verification — looking exactly like a network fault. Both ends
+    emit raw UTF-8 instead.
+
+    For the same reason the body is restricted to strings, integers, booleans and null.
+    Floats have no single canonical rendering (Python writes ``1.0`` where .NET writes
+    ``1``), so they are rejected rather than silently mismatching.
+    """
+    _reject_uncanonical(body)
+
+    encoded_body = json.dumps(
+        body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
 
     return "\n".join(
         [unit_id, message_type, str(timestamp), nonce, encoded_body]
     ).encode("utf-8")
+
+
+def _reject_uncanonical(value: Any, *, path: str = "body") -> None:
+    """Fail loudly on anything whose JSON rendering differs between Python and .NET."""
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return
+
+    if isinstance(value, int):
+        return
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise SignatureError(f"{path}: object keys must be strings")
+
+            _reject_uncanonical(item, path=f"{path}.{key}")
+
+        return
+
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_uncanonical(item, path=f"{path}[{index}]")
+
+        return
+
+    raise SignatureError(
+        f"{path}: {type(value).__name__} has no canonical JSON form shared with .NET; "
+        "use a string, integer, boolean or null"
+    )
 
 
 def sign(
