@@ -38,7 +38,17 @@ internal sealed class LockController : IDisposable
 
         if (IsLocked)
         {
-            Log.Info($"Lock requested but already locked ({reason})");
+            // Do not no-op. Windows can drop a low-level hook without telling anyone, which
+            // leaves this object believing it is locked while input is actually free — and
+            // IsActive cannot detect it, because the handle we hold stays non-zero. Re-arming
+            // is cheap and idempotent, so a repeated Lock is the operator's way back to a
+            // known state without restarting the agent.
+            Log.Warn($"Already locked — re-arming input hooks ({reason})");
+
+            _input.Release();
+            _input.Engage();
+
+            _overlays.Raise();
             return;
         }
 

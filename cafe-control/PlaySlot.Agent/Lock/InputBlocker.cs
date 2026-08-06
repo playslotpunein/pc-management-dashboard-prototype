@@ -76,7 +76,13 @@ internal sealed class InputBlocker : IDisposable
             ok = false;
         }
 
-        Log.Info($"Input hooks engaged (keyboard={_keyboardHook != IntPtr.Zero}, mouse={_mouseHook != IntPtr.Zero})");
+        // The thread id matters: a low-level hook is serviced on the thread that installed
+        // it, so this must be the pumping UI thread. Install it anywhere else and Windows
+        // drops the hook a few seconds later with nothing logged.
+        Log.Info(
+            $"Input hooks engaged on thread {Environment.CurrentManagedThreadId} " +
+            $"(keyboard={_keyboardHook != IntPtr.Zero}, mouse={_mouseHook != IntPtr.Zero})");
+
         return ok;
     }
 

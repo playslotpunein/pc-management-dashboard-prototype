@@ -28,14 +28,34 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
 
+        // WinForms installs its synchronization context when the first control handle is
+        // created on the thread, not before. Capture Current any earlier and you get null,
+        // or the base SynchronizationContext whose Send runs the delegate INLINE on the
+        // calling thread instead of marshalling. That puts SetWindowsHookEx on a thread-pool
+        // thread with no message pump, and Windows silently removes a low-level hook it
+        // cannot service (LowLevelHooksTimeout, 5s by default): the lock engages, then input
+        // returns a few seconds later with nothing logged. This control exists to force the
+        // handle — and therefore the context — onto the pumping thread first.
+        using var marshaller = new Control();
+        _ = marshaller.Handle;
+
         PrintBanner(options);
 
         using var shutdown = new CancellationTokenSource();
         using var controller = new LockController(options);
 
         // Captured on the UI thread so background work can marshal back to it.
-        var uiContext = SynchronizationContext.Current
-                        ?? throw new InvalidOperationException("No WinForms synchronization context.");
+        var uiContext = SynchronizationContext.Current;
+
+        // Fail loudly rather than degrade to an inline Send that silently breaks the lock.
+        if (uiContext is not WindowsFormsSynchronizationContext)
+        {
+            throw new InvalidOperationException(
+                $"Expected WindowsFormsSynchronizationContext, got {uiContext?.GetType().Name ?? "null"}. " +
+                "Input hooks would install on a thread with no message pump and be dropped after ~5s.");
+        }
+
+        Log.Info($"UI thread {Environment.CurrentManagedThreadId} is pumping; hooks will install here");
 
         var heartbeat = new HeartbeatClient(options);
         _ = Task.Run(() => heartbeat.RunAsync(shutdown.Token), shutdown.Token);

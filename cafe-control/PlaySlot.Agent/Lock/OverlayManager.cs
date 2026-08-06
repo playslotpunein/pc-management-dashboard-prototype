@@ -57,6 +57,21 @@ internal sealed class OverlayManager : IDisposable
         Teardown();
     }
 
+    /// <summary>
+    /// Pulls the overlays back to the front without rebuilding them. Used when re-arming a
+    /// lock that is already up: if the hooks were dropped, the customer had working input
+    /// and may well have brought another window to the foreground on top of the overlay.
+    /// </summary>
+    public void Raise()
+    {
+        foreach (var overlay in _overlays)
+        {
+            overlay.BringToFront();
+        }
+
+        _overlays.FirstOrDefault()?.Activate();
+    }
+
     private void Build()
     {
         Teardown();
