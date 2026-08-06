@@ -1,162 +1,150 @@
 using System.Diagnostics;
-using System.IO.Pipes;
-using System.Text;
+using PlaySlot.Agent.Ipc;
+using PlaySlot.Agent.Lock;
 
-// PlaySlot.Agent — test stub.
-//
-// Stands in for the real client agent while the watchdog is being built. It does one
-// thing: connect to the watchdog's named pipe every few seconds and write "alive".
-// The flags exist to drive the watchdog's failure paths on demand.
-//
-//   --no-heartbeat        never beat at all; the process stays up, so this exercises
-//                         the hung-agent path (PID present, heartbeat stale)
-//   --hang-after=<secs>   beat normally, then stop after N seconds — simulates an
-//                         agent that hangs partway through a session
-//   --pipe=<name>         override the pipe name (default PlaySlotAgentHeartbeat)
-//   --interval=<secs>     override the beat interval (default 5)
+namespace PlaySlot.Agent;
 
-const string DefaultPipeName = "PlaySlotAgentHeartbeat";
-const int DefaultIntervalSeconds = 5;
-
-var pipeName = GetOption(args, "--pipe") ?? DefaultPipeName;
-var intervalSeconds = ParseInt(GetOption(args, "--interval"), DefaultIntervalSeconds);
-var noHeartbeat = HasFlag(args, "--no-heartbeat");
-var hangAfterSeconds = ParseInt(GetOption(args, "--hang-after"), 0);
-
-using var process = Process.GetCurrentProcess();
-
-Console.Title = "PlaySlot.Agent (test stub)";
-Console.WriteLine("PlaySlot.Agent — test stub");
-Console.WriteLine(new string('-', 52));
-Console.WriteLine($"  PID          : {process.Id}");
-
-// The verification that matters. Session 0 means the watchdog launched it as a plain
-// child process and the user would never see it; 1 or higher means it landed on the
-// real desktop via CreateProcessAsUser.
-Console.WriteLine($"  Session Id   : {process.SessionId}   <- must be >= 1, not 0");
-Console.WriteLine($"  User         : {Environment.UserDomainName}\\{Environment.UserName}");
-Console.WriteLine($"  Interactive  : {Environment.UserInteractive}");
-Console.WriteLine($"  Working dir  : {Environment.CurrentDirectory}");
-Console.WriteLine($"  Pipe         : {pipeName}");
-
-if (noHeartbeat)
+internal static class Program
 {
-    Console.WriteLine("  Heartbeat    : DISABLED (--no-heartbeat)");
-}
-else if (hangAfterSeconds > 0)
-{
-    Console.WriteLine($"  Heartbeat    : every {intervalSeconds}s, stopping after {hangAfterSeconds}s");
-}
-else
-{
-    Console.WriteLine($"  Heartbeat    : every {intervalSeconds}s");
-}
-
-Console.WriteLine(new string('-', 52));
-
-if (process.SessionId == 0)
-{
-    Console.WriteLine();
-    Console.WriteLine("  WARNING: running in Session 0 — this is NOT the interactive desktop.");
-    Console.WriteLine("  The watchdog fell back to a plain launch instead of CreateProcessAsUser.");
-    Console.WriteLine();
-}
-
-using var cancellation = new CancellationTokenSource();
-
-Console.CancelKeyPress += (_, e) =>
-{
-    e.Cancel = true;
-    Console.WriteLine("Shutting down...");
-    cancellation.Cancel();
-};
-
-var startedAt = DateTime.UtcNow;
-var token = cancellation.Token;
-
-while (!token.IsCancellationRequested)
-{
-    var elapsed = DateTime.UtcNow - startedAt;
-    var stopped = noHeartbeat || (hangAfterSeconds > 0 && elapsed.TotalSeconds >= hangAfterSeconds);
-
-    if (stopped)
+    // WinForms requires a single-threaded apartment, and the low-level hooks require the
+    // message pump that Application.Run provides on this same thread.
+    [STAThread]
+    private static int Main(string[] args)
     {
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] heartbeat suppressed — waiting to be killed");
-    }
-    else
-    {
-        await SendHeartbeatAsync(pipeName, token);
-    }
-
-    try
-    {
-        await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), token);
-    }
-    catch (OperationCanceledException)
-    {
-        break;
-    }
-}
-
-return 0;
-
-static async Task SendHeartbeatAsync(string pipeName, CancellationToken token)
-{
-    try
-    {
-        using var client = new NamedPipeClientStream(
-            ".", pipeName, PipeDirection.Out, PipeOptions.Asynchronous);
-
-        await client.ConnectAsync(2000, token);
-
-        // Disposing the writer closes the pipe, which is what signals end-of-message
-        // to the watchdog's reader.
-        await using var writer = new StreamWriter(client, new UTF8Encoding(false))
+        if (args.Any(a => a is "--help" or "-h" or "/?"))
         {
-            AutoFlush = true
+            Console.WriteLine(AgentOptions.UsageText);
+            return 0;
+        }
+
+        var options = AgentOptions.Parse(args);
+
+        // Client mode: hand the command to a running agent and exit without starting
+        // any of the machinery below.
+        if (!string.IsNullOrWhiteSpace(options.SendCommand))
+        {
+            return ControlClient.SendAsync(options, options.SendCommand!).GetAwaiter().GetResult();
+        }
+
+        ApplicationConfiguration.Initialize();
+
+        PrintBanner(options);
+
+        using var shutdown = new CancellationTokenSource();
+        using var controller = new LockController(options);
+
+        // Captured on the UI thread so background work can marshal back to it.
+        var uiContext = SynchronizationContext.Current
+                        ?? throw new InvalidOperationException("No WinForms synchronization context.");
+
+        var heartbeat = new HeartbeatClient(options);
+        _ = Task.Run(() => heartbeat.RunAsync(shutdown.Token), shutdown.Token);
+
+        var control = new ControlServer(options, uiContext, command => Handle(controller, command));
+        _ = Task.Run(() => control.RunAsync(shutdown.Token), shutdown.Token);
+
+        if (options.LockAfterSeconds > 0)
+        {
+            ScheduleDemoLock(controller, options.LockAfterSeconds);
+        }
+
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            Log.Info("Shutdown requested");
+            shutdown.Cancel();
+            Application.Exit();
         };
 
-        await writer.WriteLineAsync("alive");
+        // Whatever happens, do not exit with input still swallowed.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => controller.Unlock("process exit");
 
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] heartbeat sent");
-    }
-    catch (OperationCanceledException)
-    {
-        throw;
-    }
-    catch (TimeoutException)
-    {
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] watchdog pipe not available (service running?)");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] heartbeat failed: {ex.Message}");
-    }
-}
-
-static bool HasFlag(string[] args, string name) =>
-    args.Any(a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
-
-// Accepts both "--opt=value" and "--opt value".
-static string? GetOption(string[] args, string name)
-{
-    for (var i = 0; i < args.Length; i++)
-    {
-        var arg = args[i];
-
-        if (arg.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            return arg[(name.Length + 1)..];
+            Application.Run();
+        }
+        finally
+        {
+            shutdown.Cancel();
+            controller.Unlock("agent stopping");
         }
 
-        if (string.Equals(arg, name, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+        return 0;
+    }
+
+    private static string Handle(LockController controller, string command)
+    {
+        switch (command.ToLowerInvariant())
         {
-            return args[i + 1];
+            case "lock":
+                controller.Lock("control command");
+                return $"OK locked ({controller.StatusLine})";
+
+            case "unlock":
+                controller.Unlock("control command");
+                return $"OK unlocked ({controller.StatusLine})";
+
+            case "status":
+                return $"OK {controller.StatusLine}";
+
+            case "ping":
+                return "OK pong";
+
+            default:
+                return $"ERR unknown command '{command}'";
         }
     }
 
-    return null;
-}
+    private static void ScheduleDemoLock(LockController controller, int seconds)
+    {
+        var timer = new System.Windows.Forms.Timer { Interval = seconds * 1000 };
 
-static int ParseInt(string? value, int fallback) =>
-    int.TryParse(value, out var parsed) && parsed > 0 ? parsed : fallback;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            timer.Dispose();
+            controller.Lock($"--lock-after={seconds}");
+        };
+
+        timer.Start();
+
+        Log.Info($"Demo lock scheduled in {seconds}s");
+    }
+
+    private static void PrintBanner(AgentOptions options)
+    {
+        using var process = Process.GetCurrentProcess();
+
+        Console.Title = "PlaySlot.Agent";
+
+        Log.Raw("PlaySlot.Agent — Phase 1 (Layers B + C)");
+        Log.Raw(new string('-', 58));
+        Log.Raw($"  PID          : {process.Id}");
+
+        // The verification that matters when the watchdog launched this process.
+        // Session 0 means CreateProcessAsUser did not take effect and the customer
+        // would never see the overlay.
+        Log.Raw($"  Session Id   : {process.SessionId}   <- must be >= 1, not 0");
+        Log.Raw($"  User         : {Environment.UserDomainName}\\{Environment.UserName}");
+        Log.Raw($"  Unit         : {options.UnitId}");
+        Log.Raw($"  Monitors     : {Screen.AllScreens.Length}");
+        Log.Raw($"  Heartbeat    : {(options.HeartbeatEnabled ? $"every {options.HeartbeatIntervalSeconds}s" : "DISABLED")}");
+        Log.Raw($"  Control pipe : {(options.ControlPipeEnabled ? options.ControlPipeName : "disabled")}");
+        Log.Raw($"  Panic hatch  : {PanicHatch.Describe(options.MaxLockSeconds, options.PanicComboEnabled)}");
+        Log.Raw($"  Log file     : {Log.FilePath}");
+        Log.Raw(new string('-', 58));
+
+        if (process.SessionId == 0)
+        {
+            Log.Error("Running in Session 0 — NOT the interactive desktop. The overlay will not be visible.");
+        }
+
+        if (options.MaxLockSeconds == 0 && !options.PanicComboEnabled)
+        {
+            Log.Warn("Panic hatch fully disabled. A lock can only be released by the control channel.");
+        }
+
+        Log.Raw(string.Empty);
+        Log.Info("Ready. Drive it with:  PlaySlot.Agent.exe --send lock   |   --send unlock   |   --send status");
+    }
+}

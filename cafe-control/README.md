@@ -1,10 +1,24 @@
-# PlaySlot CafeControl — Watchdog
+# PlaySlot CafeControl — Agent and Watchdog
 
-A Windows service that keeps the PlaySlot client agent alive on a managed café PC.
+Session enforcement for a managed café PC, in two processes.
 
-The service runs in **Session 0** and monitors `PlaySlot.Agent.exe`, which runs in the
-user's **interactive session**. If the agent dies, is killed from Task Manager, or hangs,
-the watchdog relaunches it onto the real desktop within seconds.
+**`PlaySlot.Agent`** runs in the user's interactive session and holds the lock: it blocks
+input (Layer B) and covers every monitor with an overlay (Layer C).
+
+**`PlaySlot.Watchdog`** runs as a Windows service in Session 0 and keeps the agent alive.
+If the agent dies, is killed from Task Manager, or hangs, the watchdog relaunches it onto
+the real desktop within seconds.
+
+Together they cover phases 1 and 2 of the build order — enough to demo a lock that works
+and survives a kill attempt.
+
+| Layer | What | Status |
+|---|---|---|
+| **A** | Kernel filter driver — catches Ctrl+Alt+Del | Phase 4, not built |
+| **B** | Low-level hooks — swallows everything else | ✅ `InputBlocker.cs` |
+| **C** | Fullscreen overlay — what the customer sees | ✅ `LockOverlay.cs` |
+| **D** | Policy hardening — standard user, no Task Manager | Phase 2, not built |
+| — | Watchdog + auto-restart | ✅ `PlaySlot.Watchdog` |
 
 ---
 
@@ -44,8 +58,20 @@ PlaySlot.CafeControl.sln
 │   ├── HeartbeatListener.cs    Named pipe server
 │   ├── WatchdogOptions.cs      Tuning, bound from appsettings.json
 │   └── appsettings.json
-├── PlaySlot.Agent/             Test stub — the real agent comes later
-│   └── Program.cs
+├── PlaySlot.Agent/             The client agent (interactive session)
+│   ├── Program.cs              Entry, message pump, control dispatch
+│   ├── AgentOptions.cs         Command-line configuration
+│   ├── Log.cs                  Console + %LOCALAPPDATA%\PlaySlot\agent.log
+│   ├── Lock/
+│   │   ├── LockController.cs   Orchestrates B and C as one unit
+│   │   ├── InputBlocker.cs     Layer B — WH_KEYBOARD_LL / WH_MOUSE_LL
+│   │   ├── LockOverlay.cs      Layer C — one borderless topmost window
+│   │   ├── OverlayManager.cs   One overlay per monitor, rebuilt on display change
+│   │   └── PanicHatch.cs       Auto-release timer + emergency combo
+│   └── Ipc/
+│       ├── HeartbeatClient.cs  "alive" to the watchdog every 5s
+│       ├── ControlServer.cs    Local lock/unlock pipe (stands in for the server)
+│       └── ControlClient.cs    The --send side of that pipe
 └── scripts/
     ├── publish.ps1
     ├── install.ps1
@@ -119,7 +145,7 @@ PlaySlot.Agent — test stub
 
 **`Session Id` is the answer.** `1` or higher means `CreateProcessAsUser` worked and the
 agent is on the real desktop. `0` means it is stuck in Session 0 and the launch path is
-broken. The stub prints an explicit warning in that case.
+broken. The agent prints an explicit warning in that case.
 
 **The scripted check**, if you would rather not rely on the window:
 
@@ -137,9 +163,71 @@ A correct deployment shows the watchdog at `SessionId 0` and the agent at `1` or
 
 ---
 
+## The lock stack (Layers B and C)
+
+### Read this before you run it
+
+The agent blocks keyboard and mouse input and covers every monitor. Run it carelessly on
+the machine holding your editor and you lock yourself out of your own desktop.
+
+**Two independent escapes are on by default**, and you should leave them on until you
+have a VM:
+
+| Escape | Default | Turn off with |
+|---|---|---|
+| Auto-release after 60s | on | `--max-lock-seconds=0` |
+| `Ctrl + Alt + Shift + U` | on | `--no-panic-combo` |
+
+The combo works *while input is being swallowed*, because `InputBlocker` reports keys to
+observers before it drops them. And because Layer B cannot touch the secure attention
+sequence, **Ctrl+Alt+Del still works** — that is the last resort on a dev box, and it is
+exactly the gap Layer A closes later.
+
+The overlay prints the combo in its footer whenever it is enabled, so you can always see
+your way out. Production runs with `--no-panic-combo --max-lock-seconds=0`, and then the
+footer shows only the unit id.
+
+### Driving it
+
+There is no server yet, so lock and unlock arrive over a local named pipe. The same
+binary is the client:
+
+```powershell
+.\PlaySlot.Agent.exe --send lock
+.\PlaySlot.Agent.exe --send unlock
+.\PlaySlot.Agent.exe --send status
+```
+
+Or lock on a delay for a hands-off demo:
+
+```powershell
+.\PlaySlot.Agent.exe --lock-after=10 --unit=PC-04
+```
+
+⚠️ This pipe is **Phase 1 scaffolding**. It has no authentication unless you pass
+`--control-token`, which means any process in the same session can send `unlock`. Zone 2's
+HMAC-signed WebSocket replaces it; run with `--no-control-pipe` once that lands.
+
+### What each layer catches
+
+| Attempt | Caught by | Notes |
+|---|---|---|
+| Alt+Tab, Windows key, Alt+F4 | Layer B | Swallowed before the shell reacts |
+| Clicking anything | Layer B | Buttons and wheel dropped; movement allowed by default |
+| Seeing the desktop | Layer C | Borderless topmost, every monitor |
+| Fullscreen game on top | Layer C | Z-order re-asserted once a second |
+| Plugging in a second monitor | Layer C | Overlay rebuilt on display change |
+| **Ctrl+Alt+Del** | **nothing yet** | Needs Layer A (Phase 4) |
+| Killing the agent | Watchdog | Relaunched within ~5s |
+
+Mouse *movement* passes through on purpose — the overlay already covers everything, and a
+frozen cursor reads as a crashed machine. `--block-mouse-move` changes that.
+
+---
+
 ## Testing the failure paths
 
-The stub agent has flags for driving the watchdog's recovery paths on demand.
+The agent has flags for driving the watchdog's recovery paths on demand.
 
 **Killed agent** — the Task Manager case:
 
@@ -242,13 +330,56 @@ By design — the uninstall does not kill user processes unless asked. Re-run wi
 
 ---
 
-## Notes for the real agent
+## Agent command line
 
-The stub exists only to exercise the watchdog. When the real agent replaces it, keep:
+```
+Lock control
+  --lock-after=<secs>        lock automatically N seconds after start (demo)
+  --max-lock-seconds=<secs>  panic hatch: auto-release after N seconds (0 = never)
+  --no-panic-combo           disable the Ctrl+Alt+Shift+U emergency release
+  --block-mouse-move         swallow mouse movement as well as clicks
+  --unit=<id>                unit id shown on the overlay
+  --lock-title=<text>        overlay heading
+  --lock-message=<text>      overlay body text
 
-- the **heartbeat contract** — connect to `PlaySlotAgentHeartbeat`, write `alive`,
-  disconnect, at a shorter interval than `HeartbeatTimeoutSeconds`;
-- the **process name** `PlaySlot.Agent`, or update `AgentProcessName`;
-- `ShowAgentWindow: false`, so it runs without a console window.
+Control channel (Phase 1 stand-in for the server WebSocket)
+  --send=<lock|unlock|status|ping>   send a command to a running agent, then exit
+  --control-pipe=<name>      pipe name (default PlaySlotAgentControl)
+  --control-token=<secret>   require this token on inbound commands
+  --no-control-pipe          do not listen for commands at all
 
-The watchdog does not care what the agent does beyond that.
+Watchdog contract
+  --pipe=<name>              heartbeat pipe (default PlaySlotAgentHeartbeat)
+  --interval=<secs>          heartbeat interval (default 5)
+  --no-heartbeat             never heartbeat — tests the watchdog's hung path
+  --hang-after=<secs>        heartbeat, then stop after N seconds
+```
+
+Arguments reach the installed agent through the watchdog's `AgentArguments` setting.
+
+### Production settings
+
+The defaults are tuned for a development machine. A real venue unit wants:
+
+```jsonc
+"AgentArguments": "--unit=PC-04 --max-lock-seconds=0 --no-panic-combo --no-control-pipe",
+"ShowAgentWindow": false
+```
+
+That leaves the server as the only thing that can release a lock — which is the point, and
+also why you should not set it until the server exists.
+
+---
+
+## What is not built yet
+
+- **Layer A** (kernel filter driver) — Ctrl+Alt+Del is still open. Phase 4, via the
+  Interception library first.
+- **Layer D** (policy hardening) — standard user, Task Manager disabled, safe boot off.
+  Phase 2's second half. On Windows Home this is registry work, not Group Policy.
+- **The server** — the session engine that decides *when* to lock. Until Phase 3, the
+  control pipe stands in for it.
+
+The agent is deliberately the executor, not the decider: it carries out `lock` and
+`unlock` and works out nothing on its own. That is what lets the WebSocket drop in behind
+`ControlServer` later without touching the lock code.
