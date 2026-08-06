@@ -59,6 +59,14 @@ internal sealed class AgentOptions
     /// <summary>Lock immediately on start, after N seconds. 0 disables. For demos.</summary>
     public int LockAfterSeconds { get; private set; }
 
+    /// <summary>
+    /// How often a held lock re-applies itself: hooks reinstalled, overlay raised.
+    /// Windows can drop a low-level hook silently and the overlay can lose the
+    /// foreground, neither of which is detectable afterwards. 0 disables, which is
+    /// really only useful when isolating a bug in the re-assert itself.
+    /// </summary>
+    public int ReassertSeconds { get; private set; } = 3;
+
     // ---- Client mode ----
 
     /// <summary>When set, the process sends this command to a running agent and exits.</summary>
@@ -82,6 +90,7 @@ internal sealed class AgentOptions
         options.HangAfterSeconds = ParseInt(GetValue(args, "--hang-after"), 0);
         options.MaxLockSeconds = ParseInt(GetValue(args, "--max-lock-seconds"), options.MaxLockSeconds, allowZero: true);
         options.LockAfterSeconds = ParseInt(GetValue(args, "--lock-after"), 0);
+        options.ReassertSeconds = ParseInt(GetValue(args, "--reassert-seconds"), options.ReassertSeconds, allowZero: true);
 
         if (HasFlag(args, "--no-heartbeat")) options.HeartbeatEnabled = false;
         if (HasFlag(args, "--no-control-pipe")) options.ControlPipeEnabled = false;
@@ -99,6 +108,7 @@ internal sealed class AgentOptions
             --max-lock-seconds=<secs> panic hatch: auto-release after N seconds (0 = never)
             --no-panic-combo          disable the Ctrl+Alt+Shift+U emergency release
             --block-mouse-move        swallow mouse movement as well as clicks
+            --reassert-seconds=<secs> re-apply a held lock this often (default 3, 0 = never)
             --unit=<id>               unit id shown on the overlay
             --lock-title=<text>       overlay heading
             --lock-message=<text>     overlay body text

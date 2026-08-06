@@ -17,7 +17,7 @@ and survives a kill attempt.
 | **A** | Kernel filter driver — catches Ctrl+Alt+Del | Phase 4, not built |
 | **B** | Low-level hooks — swallows everything else | ✅ `InputBlocker.cs` |
 | **C** | Fullscreen overlay — what the customer sees | ✅ `LockOverlay.cs` |
-| **D** | Policy hardening — standard user, no Task Manager | Phase 2, not built |
+| **D** | Policy hardening — standard user, no Task Manager | ✅ `scripts/harden.ps1` |
 | — | Watchdog + auto-restart | ✅ `PlaySlot.Watchdog` |
 
 ---
@@ -117,6 +117,8 @@ Or the whole loop in one command from an elevated prompt:
 | `install.ps1` | **Yes** | Copies to Program Files, registers + starts the service |
 | `uninstall.ps1` | **Yes** | Stops, deletes the service, removes the install folder |
 | `redeploy.ps1` | **Yes** | uninstall → publish → install |
+| `harden.ps1` | **Yes** | Layer D — policy hardening for the customer account |
+| `unharden.ps1` | **Yes** | Reverses `harden.ps1` |
 
 Each script detects a non-elevated prompt and exits with a clear message rather than
 failing halfway through.
@@ -160,6 +162,45 @@ Get-Process PlaySlot.Watchdog | Select-Object Id, SessionId
 ```
 
 A correct deployment shows the watchdog at `SessionId 0` and the agent at `1` or higher.
+
+---
+
+## Layer D — policy hardening
+
+Closes the bypasses that involve no code at all: killing the agent from Task Manager,
+undoing the policy in regedit, and rebooting into safe mode.
+
+```powershell
+# ELEVATED prompt. The account must have signed in once and be signed out now.
+.\scripts\harden.ps1 -UserName cafe
+.\scripts\harden.ps1 -UserName cafe -WhatIf     # preview without changing anything
+```
+
+Windows Home has no Group Policy editor, so the same values `gpedit` would write are set
+directly in the registry. One consequence matters: the policies live in the customer's
+own `HKCU` hive, which a standard user can normally write to. The script therefore also
+denies that user write access to the policy key — **without the ACL step the customer
+just deletes the value and gets Task Manager back.**
+
+Safe mode is handled by registering the watchdog under `SafeBoot\Minimal` and
+`SafeBoot\Network` so it runs there too, rather than by trying to block safe mode. A lock
+that survives safe mode beats a boot path you hope nobody finds.
+
+Two guards, because this script is easy to point at the wrong account: it refuses to
+harden the account running it, and refuses any account in Administrators.
+
+| Attempt | Stopped by |
+|---|---|
+| Kill the agent in Task Manager | `DisableTaskMgr` + the watchdog restarting it |
+| Delete that policy in regedit | `DisableRegistryTools` + the Deny ACL |
+| Reboot into safe mode | Watchdog registered for safe boot; WinRE disabled |
+| Boot from a USB stick | **Firmware password — must be set by hand** |
+
+Reverse it all with `.\scripts\unharden.ps1 -UserName cafe`. The account itself is left
+alone; delete it manually if you want it gone.
+
+⚠️ The BIOS/UEFI supervisor password and boot order cannot be scripted. Without them the
+machine boots off a stick and every layer above is irrelevant.
 
 ---
 

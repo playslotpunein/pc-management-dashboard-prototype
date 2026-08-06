@@ -17,6 +17,15 @@ internal sealed class LockController : IDisposable
     private readonly OverlayManager _overlays = new();
     private readonly PanicHatch _panic;
 
+    /// <summary>
+    /// Re-asserts the lock while it is held. Windows can drop a low-level hook without
+    /// telling anyone, and the overlay can lose the foreground to a window that demands
+    /// it. Neither is detectable after the fact, so the lock is re-applied on a timer
+    /// instead of being trusted to persist. Runs on the UI thread, same as everything
+    /// else that touches hooks or forms.
+    /// </summary>
+    private readonly System.Windows.Forms.Timer _reassert = new();
+
     private bool _disposed;
 
     public LockController(AgentOptions options)
@@ -28,6 +37,18 @@ internal sealed class LockController : IDisposable
         _panic.ReleaseRequested += reason => Unlock(reason);
 
         _input.KeyObserved += _panic.ObserveKey;
+
+        _reassert.Interval = Math.Max(1, options.ReassertSeconds) * 1000;
+        _reassert.Tick += (_, _) =>
+        {
+            if (!IsLocked)
+            {
+                return;
+            }
+
+            _input.Reassert();
+            _overlays.Raise();
+        };
     }
 
     public bool IsLocked { get; private set; }
@@ -70,6 +91,11 @@ internal sealed class LockController : IDisposable
         }
 
         _panic.OnLockEngaged();
+
+        if (_options.ReassertSeconds > 0)
+        {
+            _reassert.Start();
+        }
     }
 
     public void Unlock(string reason)
@@ -87,6 +113,7 @@ internal sealed class LockController : IDisposable
 
         Log.Warn($"UNLOCKING — {reason}");
 
+        _reassert.Stop();
         _panic.OnLockReleased();
         _input.Release();
         _overlays.Hide();
@@ -122,6 +149,9 @@ internal sealed class LockController : IDisposable
         // Order matters on shutdown: never leave hooks installed with no overlay, and
         // never exit with input still swallowed.
         _input.KeyObserved -= _panic.ObserveKey;
+
+        _reassert.Stop();
+        _reassert.Dispose();
 
         _input.Release();
         _input.Dispose();

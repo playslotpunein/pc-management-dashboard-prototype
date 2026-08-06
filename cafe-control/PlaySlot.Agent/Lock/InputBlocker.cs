@@ -53,6 +53,49 @@ internal sealed class InputBlocker : IDisposable
             return true;
         }
 
+        var ok = InstallHooks();
+
+        // The thread id matters: a low-level hook is serviced on the thread that installed
+        // it, so this must be the pumping UI thread. Install it anywhere else and Windows
+        // drops the hook a few seconds later with nothing logged.
+        Log.Info(
+            $"Input hooks engaged on thread {Environment.CurrentManagedThreadId} " +
+            $"(keyboard={_keyboardHook != IntPtr.Zero}, mouse={_mouseHook != IntPtr.Zero})");
+
+        return ok;
+    }
+
+    public void Release()
+    {
+        if (RemoveHooks())
+        {
+            Log.Info("Input hooks released");
+        }
+    }
+
+    /// <summary>
+    /// Reinstalls both hooks from scratch. Windows can silently drop a low-level hook —
+    /// the handle we hold stays non-zero, so <see cref="IsActive"/> cannot tell — which is
+    /// why a held lock re-asserts on a timer rather than trusting the hooks to persist.
+    ///
+    /// Runs silently (no logging) because it fires every few seconds while locked. Because
+    /// the caller is the single pumping UI thread, no input event can be dispatched between
+    /// the removal and the re-install, so the swap has no unguarded window. A genuine
+    /// re-install failure is still surfaced — <see cref="InstallHooks"/> logs it.
+    /// </summary>
+    public void Reassert()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        RemoveHooks();
+        InstallHooks();
+    }
+
+    private bool InstallHooks()
+    {
         var module = GetModuleHandle(null);
         var ok = true;
 
@@ -76,18 +119,14 @@ internal sealed class InputBlocker : IDisposable
             ok = false;
         }
 
-        // The thread id matters: a low-level hook is serviced on the thread that installed
-        // it, so this must be the pumping UI thread. Install it anywhere else and Windows
-        // drops the hook a few seconds later with nothing logged.
-        Log.Info(
-            $"Input hooks engaged on thread {Environment.CurrentManagedThreadId} " +
-            $"(keyboard={_keyboardHook != IntPtr.Zero}, mouse={_mouseHook != IntPtr.Zero})");
-
         return ok;
     }
 
-    public void Release()
+    /// <summary>Returns true if a hook was actually removed, so callers can log selectively.</summary>
+    private bool RemoveHooks()
     {
+        var had = IsActive;
+
         if (_keyboardHook != IntPtr.Zero)
         {
             UnhookWindowsHookEx(_keyboardHook);
@@ -103,7 +142,7 @@ internal sealed class InputBlocker : IDisposable
         _keyboardProc = null;
         _mouseProc = null;
 
-        Log.Info("Input hooks released");
+        return had;
     }
 
     // Hook callbacks run on the installing thread and block all input while they run.
