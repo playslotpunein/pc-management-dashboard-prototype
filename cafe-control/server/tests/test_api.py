@@ -224,3 +224,31 @@ class TestPricingHistory:
         sale = client.post(f"/sessions/{session_id}/end", json={}).json()
 
         assert sale["amount_paise"] == rupees(120)
+
+
+class TestOpenEndedNeverLeaksTheSentinel:
+    def test_an_open_ended_session_reports_no_deadline(self, client, stocked, clock):
+        """The engine uses a sentinel internally; the API must not forward it.
+
+        An open-ended walk-in has no deadline. Sending the internal "forever" value
+        would render a countdown roughly eleven thousand days long on the unit card.
+        """
+        client.post("/sessions", json={"unit_id": stocked, "duration_minutes": 0})
+
+        clock.advance(minutes=30)
+        unit = client.get("/units").json()[0]
+
+        assert unit["state"] == "active"
+        assert unit["remaining_seconds"] is None
+        assert unit["grace_remaining_seconds"] is None
+
+        # Time used is still billed — no deadline is not the same as no charge.
+        assert unit["running_total"] == "₹60.00"
+
+    def test_a_booked_session_still_reports_its_countdown(self, client, stocked, clock):
+        client.post("/sessions", json={"unit_id": stocked, "duration_minutes": 60})
+
+        clock.advance(minutes=30)
+        unit = client.get("/units").json()[0]
+
+        assert unit["remaining_seconds"] == pytest.approx(1800, abs=2)

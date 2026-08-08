@@ -136,7 +136,9 @@ class SessionEngine:
         # An open-ended walk-in has no deadline, so it never expires, warns or locks.
         if booked <= 0:
             return lifecycle.Countdown(
-                remaining_seconds=_FOREVER, grace_remaining_seconds=_FOREVER
+                remaining_seconds=_FOREVER,
+                grace_remaining_seconds=_FOREVER,
+                has_deadline=False,
             )
 
         end = ensure_utc(session.start_time) + timedelta(minutes=booked)

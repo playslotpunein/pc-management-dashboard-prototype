@@ -139,6 +139,13 @@ class Countdown:
     #: Seconds of grace left after expiry. Zero once grace is consumed.
     grace_remaining_seconds: int
 
+    #: False for an open-ended walk-in, which is billed for time used and never expires.
+    #: Such a session carries a sentinel remaining time so the comparisons above stay
+    #: total, and callers must read this flag rather than that number — an API that
+    #: forwarded the sentinel would show the manager a countdown eleven thousand days
+    #: long.
+    has_deadline: bool = True
+
     @property
     def expired(self) -> bool:
         return self.remaining_seconds <= 0

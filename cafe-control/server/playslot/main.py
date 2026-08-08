@@ -16,7 +16,10 @@ from collections.abc import AsyncIterator
 from datetime import datetime, time, timedelta
 from typing import Annotated
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from playslot.clock import Clock
@@ -167,8 +170,15 @@ async def list_units(engine: EngineDep, factory: FactoryDep) -> list[UnitLive]:
                     countdown = engine.countdown_for(session)
                     bill = engine.preview_bill(session.id)
 
-                    live.remaining_seconds = countdown.remaining_seconds
-                    live.grace_remaining_seconds = countdown.grace_remaining_seconds
+                    # Null rather than the engine's sentinel. An open-ended walk-in has
+                    # no deadline at all, and forwarding the internal "forever" value
+                    # would put an eleven-thousand-day countdown on the card.
+                    live.remaining_seconds = (
+                        countdown.remaining_seconds if countdown.has_deadline else None
+                    )
+                    live.grace_remaining_seconds = (
+                        countdown.grace_remaining_seconds if countdown.has_deadline else None
+                    )
                     live.running_total_paise = bill.total_paise
                     live.running_total = format_rupees(bill.total_paise)
                     live.customer_ref = session.customer_ref
@@ -437,3 +447,14 @@ async def agent_socket(websocket: WebSocket, unit_id: str) -> None:
         return
 
     await hub.serve(websocket, unit_id)
+
+
+# ----------------------------------------------------------------------- dashboard
+
+# Mounted last so it cannot shadow an API route. The dashboard is served by the same
+# process that runs the engine, which is what lets a counter PC work with nothing but a
+# browser pointed at localhost — no separate web server, no build step, no Node.
+_DASHBOARD = Path(__file__).resolve().parents[2] / "dashboard"
+
+if _DASHBOARD.is_dir():
+    app.mount("/", StaticFiles(directory=_DASHBOARD, html=True), name="dashboard")

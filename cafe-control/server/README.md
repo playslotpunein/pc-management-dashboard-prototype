@@ -29,7 +29,9 @@ python -m venv .venv && ./.venv/bin/pip install -e ".[dev]"
 ./.venv/bin/uvicorn playslot.main:app --reload
 ```
 
-Interactive API docs at `http://127.0.0.1:8000/docs`.
+The manager dashboard is served at `http://127.0.0.1:8000/`, with interactive API docs at
+`/docs`. Both come from this one process — a counter PC needs nothing but a browser
+pointed at localhost. No separate web server, no build step, no Node.
 
 Defaults work with no configuration at all — a counter PC is not a place to debug missing
 environment variables. Override with `PLAYSLOT_`-prefixed variables or a `.env`:
@@ -44,7 +46,7 @@ environment variables. Override with `PLAYSLOT_`-prefixed variables or a `.env`:
 | `PLAYSLOT_BUSINESS_DAY_STARTS_HOUR` | `6` | An 11pm session belongs to that evening's shift report |
 
 ```bash
-./.venv/bin/python -m pytest        # 118 tests
+./.venv/bin/python -m pytest        # 123 tests
 ```
 
 ---
@@ -258,8 +260,9 @@ rejected. A climbing count on one unit is an attack in progress, not a flaky clo
 - **The C# side of the agent link.** The server end is built and tested; the agent still
   speaks its local control pipe. It needs a WebSocket client, the canonical signing above,
   and the cached end time driving its fail-safe.
-- **Dashboard rewiring.** The prototype still keeps its own timers in browser state. The
-  `/units` response is shaped to replace them.
+- **Alerts reaching the dashboard.** The alert engine raises the three events, but the
+  dashboard polls state rather than subscribing to them, so a five-minute warning shows
+  as an amber card rather than a toast. Server-sent events would close that.
 - **Cloud sync.** The outbox fills; nothing drains it. Additive by design.
 - **Alembic migrations.** `create_all` covers local SQLite; migrations land before anything
   ships to a second venue.
