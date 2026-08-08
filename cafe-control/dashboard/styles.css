@@ -388,6 +388,23 @@ button { font-family: inherit; }
   --st-maintenance-t: rgba(100, 116, 139, 0.14);
 }
 
+/* The dark values are declared twice on purpose, matching the pattern the rest of this
+   file already uses. A viewer's theme has three states, not two: an explicit choice
+   stamps data-theme, but the default "system" setting stamps nothing at all. Declaring
+   these only under [data-theme="dark"] would leave a system-dark manager reading the
+   light-mode status ramp against a dark ground. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --st-available:   #12b512;
+    --st-scheduled:   #9b83e8;
+    --st-active:      #3987e5;
+    --st-warning:     #f0a723;
+    --st-overtime:    #f57c25;
+    --st-locked:      #e05252;
+    --st-maintenance: #94a3b8;
+  }
+}
+
 [data-theme="dark"] {
   --st-available:   #12b512;
   --st-scheduled:   #9b83e8;
