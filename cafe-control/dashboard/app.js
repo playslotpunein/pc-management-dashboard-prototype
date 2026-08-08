@@ -45,8 +45,12 @@
   const URGENT = new Set(["overtime", "locked"]);
 
   const state = {
+    view: "floor",
     units: [],
     sales: null,
+    saleList: [],
+    pricing: [],
+    openSale: null,
     linkDown: false,
     filterState: "all",
     filterZone: "all",
@@ -86,6 +90,9 @@
 
   async function refresh() {
     try {
+      // Only the floor's data is polled every second. Sales and pricing change when a
+      // manager acts, not on a timer, so they are fetched when their tab is opened —
+      // re-querying every sale of the shift once a second would be pure waste.
       const [units, sales] = await Promise.all([
         api("/units"),
         api("/sales/today"),
@@ -93,6 +100,9 @@
 
       state.units = units;
       state.sales = sales;
+
+      if (state.view === "sales") state.saleList = await api("/sales");
+      if (state.view === "pricing") state.pricing = await api("/pricing");
 
       if (state.linkDown) {
         state.linkDown = false;
@@ -360,8 +370,210 @@
       </article>`;
   }
 
+
+  // ------------------------------------------------------------------- sales
+
+  const TYPE_LABEL = { pc: "PC", ps5: "PS5", sim: "Sim rig" };
+  const METHOD_LABEL = { cash: "Cash", upi: "UPI", card: "Card", paid_online: "Paid online" };
+
+  const timeOfDay = (iso) =>
+    new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  function renderSales() {
+    const sales = state.sales;
+
+    if (!sales) return;
+
+    el("sClosed").textContent = rupees(sales.closed_paise);
+    el("sClosedSub").textContent = `${sumBy(sales.by_type, "closed_sessions")} sessions closed`;
+    el("sLive").textContent = rupees(sales.live_paise);
+    el("sLiveSub").textContent = `${sumBy(sales.by_type, "live_sessions")} still running`;
+    el("sTotal").textContent = rupees(sales.total_paise);
+
+    // By unit type. Closed and live stay in separate columns: one is money in the till,
+    // the other is money still on the floor, and adding them up hides that difference.
+    el("sByType").innerHTML = `
+      <thead><tr>
+        <th>Unit type</th><th class="num">Closed</th><th class="num">Running</th>
+        <th class="num">Sessions</th><th class="num">Total</th>
+      </tr></thead>
+      <tbody>
+        ${sales.by_type.map((row) => `
+          <tr>
+            <td>${esc(TYPE_LABEL[row.unit_type] || row.unit_type)}</td>
+            <td class="num">${rupees(row.closed_paise)}</td>
+            <td class="num">${row.live_paise ? rupees(row.live_paise) : "—"}</td>
+            <td class="num">${row.closed_sessions} closed · ${row.live_sessions} live</td>
+            <td class="num strong">${rupees(row.total_paise)}</td>
+          </tr>`).join("")}
+      </tbody>`;
+
+    const methods = Object.entries(sales.by_payment_method || {});
+
+    el("sByMethod").innerHTML = methods.length
+      ? `<thead><tr><th>Method</th><th class="num">Taken</th></tr></thead>
+         <tbody>${methods.map(([m, amount]) =>
+            `<tr><td>${esc(METHOD_LABEL[m] || m)}</td><td class="num strong">${rupees(amount)}</td></tr>`
+          ).join("")}</tbody>`
+      : `<tbody><tr><td class="panel__note">Nothing settled yet this shift.</td></tr></tbody>`;
+
+    // The individual sales. Clicking one reveals the stored breakdown it was billed
+    // from — not a recomputation, the very lines written when the session closed.
+    const rows = state.saleList;
+
+    el("sEmpty").hidden = rows.length > 0;
+    el("sList").innerHTML = rows.length ? `
+      <thead><tr>
+        <th>Time</th><th>Unit</th><th>Customer</th><th>Method</th><th class="num">Amount</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((sale) => `
+          <tr class="sale" data-sale="${esc(sale.id)}">
+            <td>${esc(timeOfDay(sale.settled_at))}</td>
+            <td>${esc(sale.unit_name || "—")}</td>
+            <td>${esc(sale.customer_ref || "—")}</td>
+            <td><span class="pill">${esc(METHOD_LABEL[sale.payment_method] || sale.payment_method)}</span></td>
+            <td class="num strong">${esc(sale.amount || rupees(sale.amount_paise))}</td>
+          </tr>
+          ${state.openSale === sale.id ? `
+          <tr class="tbl__lines"><td colspan="5">
+            <ul>
+              ${sale.lines.map((line) => `
+                <li><span>${esc(line.description)}</span><b>${rupees(line.amount_paise)}</b></li>`).join("")}
+              <li><span class="strong">Total</span><b>${rupees(sale.amount_paise)}</b></li>
+            </ul>
+          </td></tr>` : ""}
+        `).join("")}
+      </tbody>` : "";
+  }
+
+  // ----------------------------------------------------------------- pricing
+
+  const UNIT_TYPES = ["pc", "ps5", "sim"];
+
+  function renderPricing() {
+    el("pricingGrid").innerHTML = UNIT_TYPES.map((type) => {
+      const rows = state.pricing.filter((r) => r.unit_type === type);
+      const current = rows.find((r) => r.is_current);
+      const scheduled = rows.filter((r) => !r.is_current && new Date(r.effective_from) > new Date());
+      const history = rows.filter((r) => !r.is_current && new Date(r.effective_from) <= new Date());
+
+      return `
+        <article class="card">
+          <div class="card__head">
+            <div>
+              <h3 class="card__title">${esc(TYPE_LABEL[type])}</h3>
+              <div class="card__sub">${current ? "Rate in force now" : "No rate set"}</div>
+            </div>
+            ${current ? `<span class="pill pill--live">Live</span>` : ""}
+          </div>
+
+          ${current ? `
+            <div class="price__now">
+              <span class="price__rate">${rupees(current.hourly_rate_paise)}</span>
+              <span class="price__per">/ hour</span>
+            </div>
+            <div class="price__row"><span>Overtime</span><b>${current.overtime_rate_paise_per_minute ? rupees(current.overtime_rate_paise_per_minute) + " / min" : "not charged"}</b></div>
+            ${type === "ps5" ? `<div class="price__row"><span>Extra controller</span><b>${current.controller_surcharge_paise_per_hour ? rupees(current.controller_surcharge_paise_per_hour) + " / hr" : "free"}</b></div>` : ""}
+          ` : `
+            <p class="card__sub" style="margin:10px 0">
+              Starting a session on a ${esc(TYPE_LABEL[type])} will fail until a rate is set —
+              which beats billing everyone zero and finding out at closing time.
+            </p>`}
+
+          ${scheduled.length ? scheduled.map((r) => `
+            <div class="price__row">
+              <span><span class="pill pill--soon">Scheduled</span></span>
+              <b>${rupees(r.hourly_rate_paise)} from ${esc(new Date(r.effective_from).toLocaleString())}</b>
+            </div>`).join("") : ""}
+
+          <div class="card__actions">
+            <button class="btn btn--primary" data-price="${esc(type)}">${current ? "Change rate" : "Set rate"}</button>
+          </div>
+
+          ${history.length ? `
+            <details class="price__hist">
+              <summary>${history.length} earlier rate${history.length > 1 ? "s" : ""}</summary>
+              <ul>
+                ${history.map((r) => `
+                  <li><span>${esc(new Date(r.effective_from).toLocaleString())}</span><b>${rupees(r.hourly_rate_paise)} / hr</b></li>`).join("")}
+              </ul>
+            </details>` : ""}
+        </article>`;
+    }).join("");
+  }
+
+  function promptPrice(type) {
+    const current = state.pricing.find((r) => r.unit_type === type && r.is_current);
+
+    openModal(`${TYPE_LABEL[type]} rate`, `
+      <label class="field"><span>Hourly rate (₹)</span>
+        <input id="p-rate" type="number" min="0" step="10" value="${current ? current.hourly_rate_paise / 100 : 120}" /></label>
+      <label class="field"><span>Overtime (₹ per minute past grace)</span>
+        <input id="p-over" type="number" min="0" step="1" value="${current ? current.overtime_rate_paise_per_minute / 100 : 0}" /></label>
+      ${type === "ps5" ? `
+      <label class="field"><span>Extra controller (₹ per hour, each)</span>
+        <input id="p-ctrl" type="number" min="0" step="10" value="${current ? current.controller_surcharge_paise_per_hour / 100 : 0}" /></label>` : ""}
+      <p class="modal__lead" style="margin-top:14px">
+        Applies to sessions started from now on. Anything already running keeps the rate it
+        captured at its start, and the current rate is kept as history rather than replaced.
+      </p>
+      <div class="modal__actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn--primary" id="m-go" type="button">Save rate</button>
+      </div>`, () => {
+      el("m-go").onclick = async () => {
+        const payload = {
+          unit_type: type,
+          hourly_rate_paise: Math.round(Number(el("p-rate").value) * 100),
+          overtime_rate_paise_per_minute: Math.round(Number(el("p-over").value) * 100),
+          controller_surcharge_paise_per_hour: Math.round(Number(el("p-ctrl")?.value || 0) * 100),
+        };
+
+        if (!(payload.hourly_rate_paise >= 0)) { toast("Enter a valid rate", true); return; }
+
+        closeModal();
+
+        try {
+          await api("/pricing", { method: "POST", body: JSON.stringify(payload) });
+          await refresh();
+          toast(`${TYPE_LABEL[type]} now ${rupees(payload.hourly_rate_paise)}/hr for new sessions`);
+        } catch (error) {
+          toast(error.message, true);
+        }
+      };
+    });
+  }
+
+  // -------------------------------------------------------------------- views
+
+  async function showView(view) {
+    state.view = view;
+    state.openSale = null;
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      const on = tab.dataset.view === view;
+      tab.classList.toggle("tab--on", on);
+      tab.setAttribute("aria-selected", String(on));
+    });
+
+    ["floor", "sales", "pricing"].forEach((name) => {
+      el(`view-${name}`).hidden = name !== view;
+    });
+
+    // Search and Add-unit belong to the floor only; leaving them live on other tabs
+    // would offer controls that do nothing to what is on screen.
+    el("search").parentElement.style.display = view === "floor" ? "" : "none";
+    el("addBtn").style.display = view === "floor" ? "" : "none";
+
+    await refresh();
+  }
+
   function render() {
     el("linkbar").dataset.down = state.linkDown ? "1" : "0";
+
+    if (state.view === "sales") { renderSales(); renderFooter(); return; }
+    if (state.view === "pricing") { renderPricing(); renderFooter(); return; }
 
     renderKpis();
     renderDistribution();
@@ -373,6 +585,10 @@
     el("grid").innerHTML = rows.map(renderCard).join("");
     el("emptyState").hidden = rows.length > 0;
 
+    renderFooter();
+  }
+
+  function renderFooter() {
     el("footStamp").textContent = state.linkDown
       ? "Disconnected"
       : `Live · updated ${new Date().toLocaleTimeString()}`;
@@ -497,6 +713,20 @@
 
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-close]")) { closeModal(); return; }
+
+    const tab = event.target.closest("[data-view]");
+    if (tab) { showView(tab.dataset.view); return; }
+
+    const price = event.target.closest("[data-price]");
+    if (price) { promptPrice(price.dataset.price); return; }
+
+    const saleRow = event.target.closest("[data-sale]");
+    if (saleRow) {
+      // Toggle the stored breakdown for this sale.
+      state.openSale = state.openSale === saleRow.dataset.sale ? null : saleRow.dataset.sale;
+      render();
+      return;
+    }
 
     const chip = event.target.closest("[data-state]");
     if (chip) { state.filterState = chip.dataset.state; render(); return; }

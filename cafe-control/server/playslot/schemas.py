@@ -157,6 +157,12 @@ class SaleRead(ApiModel):
     settled_at: datetime
     lines: list[dict]
 
+    #: Joined in for the shift report. A row reading "session 3f9a-…, ₹120" is no use to
+    #: a manager reconciling cash at closing time; they need the unit and the customer.
+    unit_name: str = ""
+    customer_ref: str = ""
+    amount: str = ""
+
 
 # ------------------------------------------------------------------------ sales
 
@@ -216,3 +222,8 @@ class PricingRead(ApiModel):
     overtime_rate_paise_per_minute: int
     controller_surcharge_paise_per_hour: int
     effective_from: datetime
+
+    #: True for the row a new session would snapshot right now. Future-dated rows are
+    #: scheduled rather than live, and the difference has to be obvious on screen — a
+    #: manager who cannot tell which rate is in force will price a session wrong.
+    is_current: bool = False

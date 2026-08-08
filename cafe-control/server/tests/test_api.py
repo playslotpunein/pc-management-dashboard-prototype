@@ -7,6 +7,8 @@ an assertion.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -252,3 +254,98 @@ class TestOpenEndedNeverLeaksTheSentinel:
         unit = client.get("/units").json()[0]
 
         assert unit["remaining_seconds"] == pytest.approx(1800, abs=2)
+
+
+class TestSalesListForTheShiftReport:
+    def test_a_sale_carries_the_unit_and_customer(self, client, stocked, clock):
+        """A row reading "session 3f9a-…, ₹120" is no use when reconciling the till."""
+        session_id = client.post(
+            "/sessions",
+            json={"unit_id": stocked, "duration_minutes": 60, "customer_ref": "Rohan M."},
+        ).json()["id"]
+
+        clock.advance(minutes=60)
+        client.post(f"/sessions/{session_id}/end", json={"payment_method": "upi"})
+
+        sale = client.get("/sales").json()[0]
+
+        assert sale["unit_name"] == "Nova"
+        assert sale["customer_ref"] == "Rohan M."
+        assert sale["amount"] == "₹120.00"
+        assert sale["payment_method"] == "upi"
+
+    def test_the_list_is_scoped_to_the_business_day(self, client, stocked, clock):
+        session_id = client.post(
+            "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+        ).json()["id"]
+
+        clock.advance(minutes=60)
+        client.post(f"/sessions/{session_id}/end", json={})
+
+        assert len(client.get("/sales").json()) == 1
+
+        # Two days on, yesterday's takings must not pad today's shift report.
+        clock.advance(hours=48)
+
+        assert client.get("/sales").json() == []
+        assert len(client.get("/sales", params={"all_days": True}).json()) == 1
+
+    def test_the_stored_breakdown_comes_back_with_the_sale(self, client, stocked, clock):
+        session_id = client.post(
+            "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+        ).json()["id"]
+
+        client.post(f"/sessions/{session_id}/extend", json={"minutes": 30})
+        clock.advance(minutes=90)
+        client.post(f"/sessions/{session_id}/end", json={})
+
+        sale = client.get("/sales").json()[0]
+        kinds = [line["kind"] for line in sale["lines"]]
+
+        assert "base" in kinds and "extension" in kinds
+        assert sum(line["amount_paise"] for line in sale["lines"]) == sale["amount_paise"]
+
+
+class TestPricingPanel:
+    def test_the_live_row_is_flagged_per_unit_type(self, client, stocked, clock):
+        client.post("/pricing", json={"unit_type": "ps5", "hourly_rate_paise": rupees(180)})
+
+        clock.advance(minutes=5)
+        client.post("/pricing", json={"unit_type": "pc", "hourly_rate_paise": rupees(150)})
+
+        rows = client.get("/pricing").json()
+        current = {r["unit_type"]: r for r in rows if r["is_current"]}
+
+        assert current["pc"]["hourly_rate_paise"] == rupees(150)
+        assert current["ps5"]["hourly_rate_paise"] == rupees(180)
+
+        # Exactly one live row per type, whatever the history depth.
+        assert len([r for r in rows if r["is_current"]]) == 2
+
+    def test_a_future_dated_row_is_not_marked_current(self, client, stocked, clock):
+        """Scheduled is not live. Showing it as live would misprice a session."""
+        future = (clock.now() + timedelta(days=1)).isoformat()
+
+        client.post(
+            "/pricing",
+            json={"unit_type": "pc", "hourly_rate_paise": rupees(999), "effective_from": future},
+        )
+
+        rows = client.get("/pricing").json()
+        current = next(r for r in rows if r["is_current"])
+
+        assert current["hourly_rate_paise"] == rupees(120)
+        assert any(not r["is_current"] and r["hourly_rate_paise"] == rupees(999) for r in rows)
+
+    def test_history_is_returned_in_full(self, client, stocked, clock):
+        clock.advance(minutes=1)
+        client.post("/pricing", json={"unit_type": "pc", "hourly_rate_paise": rupees(150)})
+        clock.advance(minutes=1)
+        client.post("/pricing", json={"unit_type": "pc", "hourly_rate_paise": rupees(200)})
+
+        rows = [r for r in client.get("/pricing").json() if r["unit_type"] == "pc"]
+
+        # Three rows survive; a price change never rewrites what came before.
+        assert len(rows) == 3
+        assert rows[0]["is_current"] is True
+        assert rows[0]["hourly_rate_paise"] == rupees(200)

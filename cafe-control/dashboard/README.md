@@ -71,6 +71,37 @@ shut, crashed or disconnected changes nothing about sessions, billing or locks.
 
 ---
 
+## Sales
+
+The shift report. Takings, what is still owed on the floor, and every individual sale.
+
+Closed and running stay in **separate columns** rather than being added together: one is
+money in the till, the other is money still on the floor, and merging them hides the
+difference the manager is actually reconciling against.
+
+Clicking a sale reveals the breakdown it was billed from — the **stored** lines, not a
+recomputation. Pricing may have changed since, so recomputing would answer a different
+question than "why was this ₹195?".
+
+---
+
+## Pricing
+
+One card per unit type, showing the rate **in force right now**, with earlier rates kept
+underneath.
+
+A change inserts a new row; it never overwrites. Two things follow, and both are on screen:
+
+- **Running sessions are untouched.** Each bills at the rate it captured when it started,
+  so a 6pm price rise cannot change a 5pm bill.
+- **Scheduled is not live.** A future-dated rate shows as `Scheduled`, never as the current
+  price — a manager who cannot tell them apart will quote a session wrong.
+
+A type with no rate says so plainly. Starting a session on it fails, which beats billing
+everyone zero and finding out at closing time.
+
+---
+
 ## Files
 
 | File | |

@@ -44,6 +44,11 @@
           <svg class="search__icon" width="18" height="18" aria-hidden="true"><use href="#i-search"/></svg>
           <input id="search" type="search" placeholder="Search unit, zone, customer…" autocomplete="off" aria-label="Search units" />
         </label>
+        <nav class="tabs" role="tablist" aria-label="Sections">
+          <button class="tab tab--on" data-view="floor" role="tab" aria-selected="true">Floor</button>
+          <button class="tab" data-view="sales" role="tab" aria-selected="false">Sales</button>
+          <button class="tab" data-view="pricing" role="tab" aria-selected="false">Pricing</button>
+        </nav>
         <button id="addBtn" class="btn btn--primary" type="button">
           <svg width="18" height="18" aria-hidden="true"><use href="#i-plus"/></svg>
           <span>Add unit</span>
@@ -63,6 +68,7 @@
         <span id="linkbarText">Control server unreachable — figures below are stale.</span>
       </div>
 
+      <div id="view-floor" class="view">
       <section class="stats" aria-label="Floor summary">
         <article class="tile tile--hero">
           <span class="tile__label">Occupancy</span>
@@ -112,6 +118,51 @@
 
       <section id="grid" class="grid" aria-label="Units"></section>
       <p id="emptyState" class="empty" hidden>No units match these filters.</p>
+      </div>
+
+      <!-- Sales: the shift report. Closed takings, what is still owed on the floor, and
+           every individual sale with the breakdown it was billed from. -->
+      <div id="view-sales" class="view" hidden>
+        <section class="stats stats--three" aria-label="Takings">
+          <article class="tile"><span class="tile__label">Taken today</span><span class="tile__value" id="sClosed">&mdash;</span><span class="tile__sub" id="sClosedSub">&mdash;</span></article>
+          <article class="tile"><span class="tile__label">Owed on the floor</span><span class="tile__value tile__value--live" id="sLive">&mdash;</span><span class="tile__sub" id="sLiveSub">&mdash;</span></article>
+          <article class="tile tile--hero"><span class="tile__label">Expected total</span><span class="tile__value" id="sTotal">&mdash;</span><span class="tile__sub">taken plus outstanding</span></article>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head"><h2>By unit type</h2></div>
+          <div class="tablewrap"><table class="tbl" id="sByType"></table></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head">
+            <h2>By payment method</h2>
+            <span class="panel__note">Closed sales only &mdash; the till, not the floor.</span>
+          </div>
+          <div class="tablewrap"><table class="tbl" id="sByMethod"></table></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head">
+            <h2>Today&rsquo;s sales</h2>
+            <span class="panel__note">Newest first. Click a row for the breakdown it was billed from.</span>
+          </div>
+          <div class="tablewrap"><table class="tbl tbl--rows" id="sList"></table></div>
+          <p id="sEmpty" class="empty" hidden>Nothing settled yet this shift.</p>
+        </section>
+      </div>
+
+      <!-- Pricing: one card per unit type. A change inserts a new row and applies to new
+           sessions only; running sessions keep the rate they snapshotted. -->
+      <div id="view-pricing" class="view" hidden>
+        <div class="notice">
+          <strong>New sessions only</strong>
+          <span>Changing a rate never alters a session already running &mdash; each one bills
+          at the rate it captured when it started. Past rates are kept rather than
+          overwritten, so every old bill stays explainable.</span>
+        </div>
+        <section class="grid grid--pricing" id="pricingGrid"></section>
+      </div>
     </main>
 
     <footer class="foot">

@@ -325,17 +325,49 @@ async def sales_today(engine: EngineDep, factory: FactoryDep) -> RollupRead:
 
 @app.get("/sales", response_model=list[SaleRead], tags=["sales"])
 async def list_sales(
-    factory: FactoryDep, limit: Annotated[int, Query(ge=1, le=500)] = 50
+    engine: EngineDep,
+    factory: FactoryDep,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    all_days: Annotated[bool, Query()] = False,
 ) -> list[SaleRead]:
-    with unit_of_work(factory) as db:
-        rows = db.scalars(
-            select(Sale)
-            .where(Sale.venue_id == settings.venue_id)
-            .order_by(Sale.settled_at.desc())
-            .limit(limit)
-        ).all()
+    """Individual sales, newest first.
 
-        return [SaleRead.model_validate(row) for row in rows]
+    Scoped to the current business day by default, because the thing this list is for is
+    reconciling the till at the end of a shift. Pass ``all_days=true`` for history.
+    """
+    since = sales_engine.business_day_start(
+        engine.now(), day_starts_at=time(settings.business_day_starts_hour, 0)
+    )
+
+    with unit_of_work(factory) as db:
+        query = select(Sale).where(Sale.venue_id == settings.venue_id)
+
+        if not all_days:
+            query = query.where(Sale.settled_at >= since)
+
+        rows = db.scalars(query.order_by(Sale.settled_at.desc()).limit(limit)).all()
+
+        out: list[SaleRead] = []
+
+        for row in rows:
+            record = SaleRead.model_validate(row)
+            record.amount = format_rupees(row.amount_paise)
+
+            # Joined here rather than left to the client: the unit may since have been
+            # renamed or deleted, and a shift report that silently loses rows because a
+            # lookup failed is worse than one that shows a blank name.
+            session = db.get(Session, row.session_id)
+
+            if session is not None:
+                record.customer_ref = session.customer_ref
+                unit = db.get(Unit, session.unit_id)
+
+                if unit is not None:
+                    record.unit_name = unit.name
+
+            out.append(record)
+
+        return out
 
 
 # ----------------------------------------------------------------------- pricing
@@ -368,7 +400,15 @@ async def set_pricing(
 
 
 @app.get("/pricing", response_model=list[PricingRead], tags=["pricing"])
-async def list_pricing(factory: FactoryDep) -> list[PricingRead]:
+async def list_pricing(engine: EngineDep, factory: FactoryDep) -> list[PricingRead]:
+    """Every pricing row, newest first per unit type, with the live one flagged.
+
+    History is returned in full rather than only the current rate. A price change never
+    mutates an existing row, so this list is the record that explains why a session from
+    two hours ago billed what it did.
+    """
+    now = engine.now()
+
     with unit_of_work(factory) as db:
         rows = db.scalars(
             select(Pricing)
@@ -376,7 +416,21 @@ async def list_pricing(factory: FactoryDep) -> list[PricingRead]:
             .order_by(Pricing.unit_type, Pricing.effective_from.desc())
         ).all()
 
-        return [PricingRead.model_validate(row) for row in rows]
+        out = [PricingRead.model_validate(row) for row in rows]
+
+        # The live row per type is the newest one already in effect. Future-dated rows
+        # are scheduled, not current, and marking them as live would tell a manager a
+        # session costs something it does not.
+        seen: set[str] = set()
+
+        for record in out:
+            key = record.unit_type.value
+
+            if key not in seen and record.effective_from <= now:
+                record.is_current = True
+                seen.add(key)
+
+        return out
 
 
 # ------------------------------------------------------------------------ agents
