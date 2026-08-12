@@ -46,7 +46,7 @@ environment variables. Override with `PLAYSLOT_`-prefixed variables or a `.env`:
 | `PLAYSLOT_BUSINESS_DAY_STARTS_HOUR` | `6` | An 11pm session belongs to that evening's shift report |
 
 ```bash
-./.venv/bin/python -m pytest        # 142 tests
+./.venv/bin/python -m pytest        # 150 tests
 ```
 
 ---
@@ -277,11 +277,41 @@ comes with the explanation rather than without it.
 
 ---
 
+## Migrations
+
+The server brings its own database up to head **at startup**. A café counter PC has
+nobody to run a migration command on it, and Alembic is idempotent, so this is the right
+place for it — an up-to-date database costs one query.
+
+```bash
+./.venv/bin/alembic current                       # where this database is
+./.venv/bin/alembic revision --autogenerate -m "…"  # after changing models.py
+./.venv/bin/alembic check                         # fails if models and migrations differ
+```
+
+`alembic check` is the one worth putting in CI. It is the mechanical version of the
+architecture's warning that defining the schema twice makes the two drift within a month.
+
+Three details in `migrations/env.py` are load-bearing rather than boilerplate:
+
+- **`render_as_batch=True`.** SQLite cannot ALTER a column — no type change, no
+  constraint change, no meaningful DROP COLUMN. Batch mode emits the only thing SQLite
+  understands: build a new table, copy the rows, swap. Without it perhaps half of all
+  future migrations would generate fine and fail on the venue's database.
+- **Custom types render as their storage type.** `UtcDateTime` and `EnumValue` are
+  Python-side conveniences that emit ordinary `DATETIME` and `VARCHAR`. Left to itself
+  Alembic writes `EnumValue(length=32)` without the `enum_class` its constructor
+  requires, and the migration dies partway through, leaving a half-built schema.
+- **An existing database is adopted, not upgraded.** One created by the pre-migration
+  build has all seven tables and no `alembic_version`; an upgrade would `CREATE TABLE`
+  over tables holding real sales. `run_migrations` stamps it instead, and a test asserts
+  the rows survive.
+
+---
+
 ## Not built yet
 
 - **The C# side of the agent link.** The server end is built and tested; the agent still
   speaks its local control pipe. It needs a WebSocket client, the canonical signing above,
   and the cached end time driving its fail-safe.
 - **Cloud sync.** The outbox fills; nothing drains it. Additive by design.
-- **Alembic migrations.** `create_all` covers local SQLite; migrations land before anything
-  ships to a second venue.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 from datetime import datetime, time, timedelta
 from typing import Annotated
@@ -26,7 +27,7 @@ from sqlalchemy import select
 
 from playslot.clock import Clock
 from playslot.config import settings
-from playslot.db import create_all, create_db_engine, session_factory, unit_of_work
+from playslot.db import create_db_engine, run_migrations, session_factory, unit_of_work
 from playslot.engine import sales as sales_engine
 from playslot.events import AlertBroker, sse, sse_comment
 from playslot.engine.session_engine import (
@@ -65,8 +66,13 @@ broker_holder: dict[str, AlertBroker] = {}
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Migrations rather than create_all: a venue's database has history that matters,
+    # and there is nobody at a counter PC to run a command. Idempotent, so an
+    # up-to-date database costs a query.
+    revision = run_migrations(settings.database_url)
+    logging.getLogger(__name__).info("Database at revision %s", revision)
+
     db_engine = create_db_engine(settings.database_url, echo=settings.echo_sql)
-    create_all(db_engine)
 
     factory = session_factory(db_engine)
     factory_holder["factory"] = factory
