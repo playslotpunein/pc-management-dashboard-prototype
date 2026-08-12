@@ -185,6 +185,10 @@
     </div>
   </div>
 
+  <!-- Alert stack. Separate from the action toast: these are the engine speaking, not
+       an acknowledgement of something the manager just clicked. -->
+  <div id="alerts" class="alerts" aria-live="polite" aria-label="Floor alerts"></div>
+
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script src="app.js"></script>

@@ -691,6 +691,95 @@
     });
   }
 
+
+  // --------------------------------------------------------------------- alerts
+
+  /* Alerts arrive pushed, not polled.
+   *
+   * The interesting ones are edges — "five minutes left", "grace expired" — and an edge
+   * is exactly what polling loses: either it falls between two requests, or the client
+   * re-derives it, which is the browser-side logic this dashboard exists without.
+   *
+   * State keeps its own one-second poll. This stream carries only the events.
+   */
+
+  const ALERT_STYLE = {
+    five_minute_warning: { icon: "i-warning",  tone: "warn",  hold: 6000 },
+    expired:             { icon: "i-overtime", tone: "over",  hold: 8000 },
+    grace_timeout:       { icon: "i-locked",   tone: "lock",  hold: 12000 },
+    no_show:             { icon: "i-scheduled",tone: "warn",  hold: 10000 },
+  };
+
+  let alertStream = null;
+
+  function connectAlerts() {
+    if (alertStream) alertStream.close();
+
+    alertStream = new EventSource(API + "/events");
+
+    alertStream.addEventListener("alert", (event) => {
+      let payload;
+
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      showAlert(payload);
+
+      // A lock or an expiry changes the floor, so pull fresh state rather than waiting
+      // out the remainder of the poll interval.
+      if (payload.triggers_lock || payload.kind === "no_show") refresh();
+    });
+
+    // EventSource reconnects on its own; this only surfaces that it is trying, so a
+    // manager is never quietly left without alerts.
+    alertStream.onerror = () => {
+      if (alertStream.readyState === EventSource.CLOSED) {
+        setTimeout(connectAlerts, 3000);
+      }
+    };
+  }
+
+  const seenAlerts = new Set();
+
+  function showAlert(payload) {
+    // The stream replays what fired just before this tab connected, so a reload does
+    // not re-toast alerts the manager already dealt with.
+    const key = `${payload.session_id}:${payload.kind}`;
+
+    if (seenAlerts.has(key)) return;
+
+    seenAlerts.add(key);
+
+    const style = ALERT_STYLE[payload.kind] || { icon: "i-warning", tone: "warn", hold: 6000 };
+
+    pushAlert(payload.message, style);
+  }
+
+  function pushAlert(message, style) {
+    const host = el("alerts");
+
+    const node = document.createElement("div");
+    node.className = `alert alert--${style.tone}`;
+    node.setAttribute("role", "status");
+    node.innerHTML =
+      `<svg width="17" height="17" aria-hidden="true"><use href="#${style.icon}"/></svg>` +
+      `<span>${esc(message)}</span>` +
+      `<button class="alert__x" type="button" aria-label="Dismiss">&times;</button>`;
+
+    node.querySelector(".alert__x").onclick = () => node.remove();
+
+    host.append(node);
+
+    // Keep the stack short. On a busy evening the newest few are what matter, and a
+    // column of twenty toasts covers the floor grid underneath.
+    while (host.children.length > 5) host.firstElementChild.remove();
+
+    setTimeout(() => node.remove(), style.hold);
+  }
+
   // --------------------------------------------------------------------- toast
 
   let toastTimer;
@@ -784,6 +873,7 @@
     .catch(() => { el("footVenue").textContent = "—"; });
 
   refresh();
+  connectAlerts();
 
   // The only interval in the file, and it fetches rather than counts. Every figure it
   // draws was computed by the engine; nothing here advances a clock of its own.

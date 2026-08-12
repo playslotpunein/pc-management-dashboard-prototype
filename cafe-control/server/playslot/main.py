@@ -11,6 +11,7 @@ dashboard can be replaced without touching a rule.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from datetime import datetime, time, timedelta
@@ -19,6 +20,7 @@ from typing import Annotated
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
@@ -26,6 +28,7 @@ from playslot.clock import Clock
 from playslot.config import settings
 from playslot.db import create_all, create_db_engine, session_factory, unit_of_work
 from playslot.engine import sales as sales_engine
+from playslot.events import AlertBroker, sse, sse_comment
 from playslot.engine.session_engine import (
     SessionEngine,
     SessionEngineError,
@@ -57,6 +60,7 @@ from playslot.schemas import (
 engine_holder: dict[str, SessionEngine] = {}
 factory_holder: dict[str, object] = {}
 hub_holder: dict[str, AgentHub] = {}
+broker_holder: dict[str, AlertBroker] = {}
 
 
 @contextlib.asynccontextmanager
@@ -74,11 +78,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     hub = AgentHub(factory, venue_id=settings.venue_id, clock=clock)
     hub_holder["hub"] = hub
 
+    # Alerts fan out to whoever is watching. The engine raises them whether or not a
+    # dashboard is connected — this only delivers the manager-facing half.
+    broker = AlertBroker()
+    broker_holder["broker"] = broker
+
     engine = SessionEngine(
         factory,
         venue_id=settings.venue_id,
         clock=clock,
         command_sink=hub.command_sink,
+        alert_sink=broker.sink,
         warning_seconds=settings.warning_seconds,
         no_show_timeout_minutes=settings.no_show_timeout_minutes,
     )
@@ -502,6 +512,56 @@ async def agent_socket(websocket: WebSocket, unit_id: str) -> None:
 
     await hub.serve(websocket, unit_id)
 
+
+# ------------------------------------------------------------------------ alerts
+
+
+@app.get("/events", tags=["ops"])
+async def alert_stream() -> StreamingResponse:
+    """Server-sent stream of alerts, for dashboard toasts.
+
+    Alerts are pushed rather than polled because the interesting ones are edges — "five
+    minutes left", "grace expired" — and polling for an edge means either missing it
+    between requests or re-deriving it on the client, which is the browser-side logic
+    this dashboard exists without.
+
+    State keeps its own one-second poll. This stream carries only the events.
+    """
+    broker = broker_holder.get("broker")
+
+    if broker is None:
+        raise HTTPException(503, "Alert broker is not running")
+
+    queue = broker.subscribe()
+
+    async def stream():
+        try:
+            # Replay what fired just before this dashboard connected, so a manager
+            # opening the tab is not staring at a locked unit with no explanation.
+            for payload in broker.recent():
+                yield sse(payload)
+
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield sse(payload)
+                except TimeoutError:
+                    # Idle comment frame. Without it a proxy reaps the connection and
+                    # the dashboard silently stops receiving alerts.
+                    yield sse_comment()
+        finally:
+            broker.unsubscribe(queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Tells nginx not to buffer, which would hold every alert until the
+            # connection closed.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 # ----------------------------------------------------------------------- dashboard
 

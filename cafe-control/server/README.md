@@ -46,7 +46,7 @@ environment variables. Override with `PLAYSLOT_`-prefixed variables or a `.env`:
 | `PLAYSLOT_BUSINESS_DAY_STARTS_HOUR` | `6` | An 11pm session belongs to that evening's shift report |
 
 ```bash
-./.venv/bin/python -m pytest        # 123 tests
+./.venv/bin/python -m pytest        # 142 tests
 ```
 
 ---
@@ -255,14 +255,33 @@ rejected. A climbing count on one unit is an attack in progress, not a flaky clo
 
 ---
 
+## Alerts
+
+The engine raises its three events regardless of who is listening — that separation is
+why a grace timeout still locks a unit at 2am with every browser closed. `/events` is a
+server-sent stream that delivers the manager-facing half on top.
+
+Pushed rather than polled because the interesting alerts are **edges** — "five minutes
+left", "grace expired" — and an edge is what polling loses: it either falls between two
+requests or gets re-derived on the client, which is the browser-side logic this dashboard
+exists without. State keeps its own one-second poll; this stream carries only events.
+
+Delivery is best-effort and deliberately so. A dashboard that is not connected misses the
+toast, and nothing is retried — the lock, the transition and the audit row already
+happened. Each subscriber gets a **bounded** queue that drops the *oldest* when full: a
+laptop waking from sleep wants "unit 5 locked", not the four warnings that led to it, and
+an unbounded queue behind a wedged tab is a memory leak that takes the server with it.
+
+A dashboard connecting late gets a short replay, so opening the tab to a locked unit
+comes with the explanation rather than without it.
+
+---
+
 ## Not built yet
 
 - **The C# side of the agent link.** The server end is built and tested; the agent still
   speaks its local control pipe. It needs a WebSocket client, the canonical signing above,
   and the cached end time driving its fail-safe.
-- **Alerts reaching the dashboard.** The alert engine raises the three events, but the
-  dashboard polls state rather than subscribing to them, so a five-minute warning shows
-  as an amber card rather than a toast. Server-sent events would close that.
 - **Cloud sync.** The outbox fills; nothing drains it. Additive by design.
 - **Alembic migrations.** `create_all` covers local SQLite; migrations land before anything
   ships to a second venue.

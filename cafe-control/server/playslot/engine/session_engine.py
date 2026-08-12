@@ -76,6 +76,10 @@ class TickResult:
 #: production; a list append in tests.
 CommandSink = Callable[[str, bool], Awaitable[None]]
 
+#: Called with the alerts raised on a tick. Delivery to dashboards is best-effort;
+#: the engine never waits on it and never retries.
+AlertSink = Callable[[list[Alert], datetime], Awaitable[None]]
+
 
 class SessionEngine:
     """Owns session lifecycle, billing and alerting for one venue."""
@@ -87,6 +91,7 @@ class SessionEngine:
         venue_id: str,
         clock: Clock | None = None,
         command_sink: CommandSink | None = None,
+        alert_sink: AlertSink | None = None,
         warning_seconds: int = WARNING_SECONDS,
         no_show_timeout_minutes: int = NO_SHOW_TIMEOUT_MINUTES,
     ) -> None:
@@ -94,6 +99,7 @@ class SessionEngine:
         self._venue_id = venue_id
         self._clock = clock or Clock()
         self._command_sink = command_sink
+        self._alert_sink = alert_sink
         self._warning_seconds = warning_seconds
         self._no_show_timeout_minutes = no_show_timeout_minutes
 
@@ -618,6 +624,16 @@ class SessionEngine:
             (lock_commands if lock else unlock_commands).append(unit_id)
 
         await self._dispatch(lock_commands, unlock_commands)
+
+        if alerts and self._alert_sink is not None:
+            try:
+                await self._alert_sink(alerts, self._clock.now())
+            except Exception:
+                # A failed toast must never affect the floor. The lock, the transition
+                # and the audit row have already been committed above.
+                import logging
+
+                logging.getLogger(__name__).exception("Alert delivery failed")
 
         return TickResult(
             transitions=tuple(transitions),
