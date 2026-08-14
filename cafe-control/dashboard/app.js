@@ -822,6 +822,10 @@
     expired:             { icon: "i-overtime", tone: "over",  hold: 8000 },
     grace_timeout:       { icon: "i-locked",   tone: "lock",  hold: 12000 },
     no_show:             { icon: "i-scheduled",tone: "warn",  hold: 10000 },
+
+    // Held longest of all. It is the only enforcement a pool table has, and it is on
+    // screen precisely when nothing else is going to stop the unit running on.
+    overdue:             { icon: "i-overtime", tone: "over",  hold: 15000 },
   };
 
   let alertStream = null;
@@ -861,7 +865,14 @@
   function showAlert(payload) {
     // The stream replays what fired just before this tab connected, so a reload does
     // not re-toast alerts the manager already dealt with.
-    const key = `${payload.session_id}:${payload.kind}`;
+    //
+    // The message is part of the key, not just the kind. Overdue is deliberately
+    // repeated by the server every five minutes on a unit nothing can lock, and keying
+    // on the kind alone would swallow every repeat after the first — silently turning
+    // the one form of enforcement a pool table has into a single toast at minute five.
+    // Each repeat carries a higher minute count, so it differs; a genuine replay of the
+    // same alert does not, and is still suppressed.
+    const key = `${payload.session_id}:${payload.kind}:${payload.message}`;
 
     if (seenAlerts.has(key)) return;
 
