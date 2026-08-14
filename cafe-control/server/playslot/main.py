@@ -208,7 +208,15 @@ async def list_units(engine: EngineDep, factory: FactoryDep) -> list[UnitLive]:
 @app.post("/units", response_model=UnitRead, status_code=201, tags=["units"])
 async def create_unit(payload: UnitCreate, factory: FactoryDep) -> UnitRead:
     with unit_of_work(factory) as db:
-        unit = Unit(venue_id=settings.venue_id, **payload.model_dump())
+        fields = payload.model_dump()
+
+        # Dropped rather than passed as None, so the model's own type-derived default
+        # applies. Passing None explicitly would override that default and violate NOT
+        # NULL — one mechanism, in the model, is the point.
+        if fields.get("enforcement") is None:
+            fields.pop("enforcement", None)
+
+        unit = Unit(venue_id=settings.venue_id, **fields)
         db.add(unit)
         db.flush()
 

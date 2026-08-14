@@ -15,6 +15,43 @@ class UnitType(StrEnum):
     PS5 = "ps5"
     SIM = "sim"
 
+    #: Cue sports. No computer to install an agent on, so these are timed and billed
+    #: exactly like any other unit and enforced by the manager walking over.
+    POOL = "pool"
+    SNOOKER = "snooker"
+
+
+class EnforcementMode(StrEnum):
+    """How a unit's time limit is actually enforced.
+
+    Kept separate from :class:`UnitType` because the two genuinely differ, and pretending
+    otherwise puts a hardcoded list of types in the middle of the session engine.
+
+    It also covers a case that has nothing to do with pool: a PC whose agent has not been
+    installed yet. Set it to MANUAL and the venue still gets timing, billing and alerts
+    on that machine from day one, with locking switched on later by changing one field.
+    """
+
+    #: An agent holds the lock: input blocking plus a fullscreen overlay.
+    SOFTWARE = "software"
+
+    #: A smart relay cuts the display. PS5 stations, where no agent is possible.
+    RELAY = "relay"
+
+    #: Nothing is locked. The system alerts and the manager handles it. Pool and snooker
+    #: tables, and any unit not yet wired for enforcement.
+    MANUAL = "manual"
+
+
+#: What a unit type is enforced by unless the venue says otherwise.
+DEFAULT_ENFORCEMENT: dict[UnitType, EnforcementMode] = {
+    UnitType.PC: EnforcementMode.SOFTWARE,
+    UnitType.SIM: EnforcementMode.SOFTWARE,
+    UnitType.PS5: EnforcementMode.RELAY,
+    UnitType.POOL: EnforcementMode.MANUAL,
+    UnitType.SNOOKER: EnforcementMode.MANUAL,
+}
+
 
 class UnitState(StrEnum):
     """The per-unit state machine. Exactly one of these holds at any moment.
@@ -121,8 +158,13 @@ class AlertKind(StrEnum):
     #: Timer reached zero; grace has begun.
     EXPIRED = "expired"
 
-    #: Grace consumed. This is the event that actually triggers the lock command.
+    #: Grace consumed. On an enforced unit this is what triggers the lock command.
     GRACE_TIMEOUT = "grace_timeout"
+
+    #: Grace consumed on a unit nothing can lock — a pool table, or a PC with no agent.
+    #: Repeats while the unit stays over, because on these the reminder *is* the
+    #: enforcement: a manager who misses it once has given the table away.
+    OVERDUE = "overdue"
 
     #: A scheduled booking was never claimed.
     NO_SHOW = "no_show"

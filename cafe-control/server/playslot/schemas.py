@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from playslot.enums import (
     AlertKind,
+    EnforcementMode,
     PaymentMethod,
     SessionSource,
     SessionStatus,
@@ -38,6 +39,11 @@ class UnitCreate(ApiModel):
     name: str = Field(min_length=1, max_length=64)
     type: UnitType
     zone: str = ""
+
+    #: Left null, this follows the type. Set it to override — a PC awaiting agent
+    #: installation runs as MANUAL and still gets timing, billing and alerts.
+    enforcement: EnforcementMode | None = None
+
     relay_address: str | None = None
     notes: str = ""
 
@@ -48,6 +54,7 @@ class UnitRead(ApiModel):
     type: UnitType
     zone: str
     state: UnitState
+    enforcement: EnforcementMode
     current_session_id: str | None
     relay_address: str | None
     notes: str

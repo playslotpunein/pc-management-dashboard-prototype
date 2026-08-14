@@ -27,7 +27,7 @@ There is **no arithmetic on time or money anywhere in `app.js`**. Not "recalcula
 often" — none. Search it for `setInterval` and you will find exactly one, and it fetches
 rather than counts.
 
-`localStorage` now holds theme and sort preference only. Those are presentation, and
+`localStorage` now holds theme, sort and the kind filter only. Those are presentation, and
 losing them costs nothing — unlike a cached rupee figure, which would be confidently
 wrong at the counter.
 
@@ -55,6 +55,32 @@ sessions alone reconciles at midnight and is useless at 8pm.
 
 **An open-ended walk-in shows `open`, not a countdown.** It has no deadline and can never
 run into overtime; it bills for time used.
+
+---
+
+## Pool and snooker tables
+
+A table is a unit like any other — same clock, same rates, same sales — with one thing it
+cannot do, which the card says outright.
+
+**A grey `Manual` badge** marks any unit nothing can lock: the tables, and any PC whose
+agent is not installed yet. Only the exception is marked; stamping "Agent lock" on all
+thirty PCs would be noise. It is drawn in neutral ink and does not pulse on an urgent
+card, because it is a fact about the unit rather than something newly happening.
+
+**Past its time, a table reads `over by · nothing will lock it` and stays in overtime.**
+It never shows `locked`, however far over it runs. A padlock next to four people still
+playing would say the floor is under control when it is not — and a manager who believes
+it waits for something that is never going to happen.
+
+**The overdue alert repeats every five minutes**, unlike every other alert here, which
+fires once. On a table the reminder is the only enforcement there is.
+
+**The `Kind` filter** narrows the floor to one type — the tables upstairs, say — and the
+choice survives a refresh, so whoever is running them sets it once a shift. Everything at
+or below the filter row then describes that selection: the zone list drops to the zones
+those units are actually in, and the state chips count only them, so a chip never claims
+a number the grid below it does not show.
 
 ---
 

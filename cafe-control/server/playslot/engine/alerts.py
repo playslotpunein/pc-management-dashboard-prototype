@@ -18,6 +18,10 @@ from dataclasses import dataclass, field
 from playslot.enums import AlertKind
 from playslot.engine.lifecycle import Countdown
 
+#: How often the overdue reminder repeats on a unit nothing can lock. On those the nag is
+#: the enforcement — a manager who misses it once has given the table away for free.
+OVERDUE_REMINDER_SECONDS = 300
+
 
 @dataclass(frozen=True, slots=True)
 class Alert:
@@ -43,12 +47,34 @@ class AlertLedger:
     """
 
     _raised: dict[str, set[AlertKind]] = field(default_factory=dict)
+    _stages: dict[tuple[str, AlertKind], int] = field(default_factory=dict)
 
     def already_raised(self, session_id: str, kind: AlertKind) -> bool:
         return kind in self._raised.get(session_id, set())
 
     def mark(self, session_id: str, kind: AlertKind) -> None:
         self._raised.setdefault(session_id, set()).add(kind)
+
+    def clear(self, session_id: str, kind: AlertKind) -> None:
+        """Allow one kind to fire again, without forgetting the rest of the session."""
+        self._raised.get(session_id, set()).discard(kind)
+
+    def reached_stage(self, session_id: str, kind: AlertKind, stage: int) -> bool:
+        """True the first time this kind reaches ``stage`` on this session.
+
+        For the repeating overdue reminder. Comparing the elapsed time against a window
+        instead — "fire if we are within a minute of a five-minute boundary" — would
+        re-fire on every tick inside that window, which at a one-second tick is sixty
+        toasts a minute. The stage is a counter, so each block can only be entered once.
+        """
+        key = (session_id, kind)
+
+        if self._stages.get(key) == stage:
+            return False
+
+        self._stages[key] = stage
+
+        return True
 
     def forget(self, session_id: str) -> None:
         """Drop a closed session, and re-arm one that was extended.
@@ -57,6 +83,9 @@ class AlertLedger:
         allowed to fire again on the new deadline.
         """
         self._raised.pop(session_id, None)
+
+        for key in [key for key in self._stages if key[0] == session_id]:
+            del self._stages[key]
 
 
 def evaluate(
@@ -67,6 +96,7 @@ def evaluate(
     countdown: Countdown,
     warning_seconds: int,
     ledger: AlertLedger,
+    enforced: bool = True,
 ) -> list[Alert]:
     """Return the alerts that should fire for one unit on this tick.
 
@@ -96,10 +126,28 @@ def evaluate(
         ledger.mark(session_id, AlertKind.FIVE_MINUTE_WARNING)
         ledger.mark(session_id, AlertKind.EXPIRED)
 
+        if enforced:
+            raise_once(
+                AlertKind.GRACE_TIMEOUT,
+                f"{unit_name}: grace expired — locking",
+                triggers_lock=True,
+            )
+
+            return alerts
+
+        # Nothing here can be locked, so the reminder repeats until the manager deals
+        # with it. Firing once and going quiet would let a table run an hour over
+        # unnoticed on a busy evening, which is the whole failure this guards against.
+        over_by = abs(countdown.remaining_seconds)
+
+        if ledger.reached_stage(
+            session_id, AlertKind.OVERDUE, over_by // OVERDUE_REMINDER_SECONDS
+        ):
+            ledger.clear(session_id, AlertKind.OVERDUE)
+
         raise_once(
-            AlertKind.GRACE_TIMEOUT,
-            f"{unit_name}: grace expired — locking",
-            triggers_lock=True,
+            AlertKind.OVERDUE,
+            f"{unit_name}: {over_by // 60} min over — still running, no lock possible",
         )
 
         return alerts

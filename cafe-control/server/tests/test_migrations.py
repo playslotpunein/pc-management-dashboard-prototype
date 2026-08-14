@@ -12,8 +12,11 @@ import sqlite3
 
 import pytest
 from sqlalchemy import inspect
+from sqlalchemy.orm import Session
 
 from playslot.db import create_all, create_db_engine, run_migrations
+from playslot.enums import UnitType
+from playslot.models import Unit
 
 EXPECTED_TABLES = {
     "units",
@@ -89,16 +92,12 @@ class TestAdoptingAnExistingDatabase:
         engine = create_db_engine(url)
         create_all(engine)
 
-        with engine.begin() as connection:
-            from sqlalchemy import text
-
-            connection.execute(
-                text(
-                    "INSERT INTO units (id, venue_id, name, type, zone, state, notes, created_at) "
-                    "VALUES ('u1', 'v1', 'Nova', 'pc', 'Battle Zone', 'available', '', "
-                    "'2026-08-06 12:00:00')"
-                )
-            )
+        # Written through the model rather than as literal SQL. A hand-written INSERT
+        # here has to be edited every time a column is added, and it fails in a way that
+        # looks like the migration broke when in fact only the test went stale.
+        with Session(engine) as session:
+            session.add(Unit(id="u1", venue_id="v1", name="Nova", type=UnitType.PC))
+            session.commit()
 
         engine.dispose()
 

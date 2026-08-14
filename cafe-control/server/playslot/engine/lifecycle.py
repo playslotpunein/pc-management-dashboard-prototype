@@ -160,6 +160,7 @@ def derive_state(
     *,
     warning_seconds: int,
     current: UnitState,
+    enforced: bool = True,
 ) -> UnitState:
     """Work out which state an occupied unit should be in, purely from the clock.
 
@@ -169,12 +170,20 @@ def derive_state(
 
     Units that are not running a session (AVAILABLE, SCHEDULED, MAINTENANCE) are returned
     untouched — the clock has no opinion about them.
+
+    ``enforced`` is False for a unit nothing can hold shut: a pool or snooker table, or a
+    PC whose agent is not installed yet. Those never reach LOCKED.
     """
     if current in (UnitState.AVAILABLE, UnitState.SCHEDULED, UnitState.MAINTENANCE):
         return current
 
     if countdown.grace_consumed:
-        return UnitState.LOCKED
+        # A unit nothing can lock stays in OVERTIME however far past its time it runs.
+        # Moving a pool table to LOCKED would put a padlock on the manager's screen next
+        # to four people still playing on it — the one thing a floor display must never
+        # do is claim something it has not done. The escalation for these is the repeating
+        # overdue alert, not a state change.
+        return UnitState.LOCKED if enforced else UnitState.OVERTIME
 
     if countdown.expired:
         return UnitState.OVERTIME

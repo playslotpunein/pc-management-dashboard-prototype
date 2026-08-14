@@ -15,10 +15,12 @@ from playslot.db import unit_of_work
 from playslot.engine.session_engine import SessionEngine, SessionEngineError, UnitBusy
 from playslot.enums import (
     AlertKind,
+    EnforcementMode,
     PaymentMethod,
     SessionSource,
     SessionStatus,
     UnitState,
+    UnitType,
 )
 from playslot.models import ActivityLog, Pricing, Sale, Session, SyncOutbox, Unit
 from playslot.money import rupees
@@ -27,6 +29,7 @@ from .conftest import VENUE
 
 PC = "unit-pc-01"
 PS5 = "unit-ps5-01"
+POOL = "unit-pool-01"
 
 
 def unit_state(factory, unit_id: str) -> UnitState:
@@ -213,6 +216,200 @@ class TestTheCountdown:
 
         assert unit_state(seeded, PC) is UnitState.LOCKED
         assert commands == [(PC, True)]
+
+
+class TestTablesNothingCanLock:
+    """Pool and snooker: timed and billed like everything else, held by nobody.
+
+    A table has no agent and no relay, so the engine's last resort is unavailable. It
+    runs the same clock, the same rates and the same sales, and where a PC would lock it
+    nags the manager instead.
+    """
+
+    async def test_a_table_past_grace_stays_in_overtime(
+        self, engine, pool_table, clock
+    ):
+        """It must not show LOCKED.
+
+        There is no lock. Four people are still playing on it, and a padlock on the card
+        would tell the manager the floor is under control when it is not.
+        """
+        engine.start_session(unit_id=POOL, duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        await engine.tick()
+
+        assert unit_state(pool_table, POOL) is UnitState.OVERTIME
+
+        # An hour past grace, and still not locked.
+        clock.advance(hours=1)
+        await engine.tick()
+
+        assert unit_state(pool_table, POOL) is UnitState.OVERTIME
+
+    async def test_no_lock_command_is_ever_dispatched(
+        self, engine, pool_table, clock, commands
+    ):
+        """Nothing is listening. Sending anyway would log a failure once a second."""
+        engine.start_session(unit_id=POOL, duration_minutes=60)
+
+        clock.advance(minutes=90)
+        await engine.tick()
+
+        assert not any(unit_id == POOL and lock for unit_id, lock in commands)
+
+    async def test_grace_expiry_raises_overdue_rather_than_a_lock(
+        self, engine, pool_table, clock
+    ):
+        engine.start_session(unit_id=POOL, duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        result = await engine.tick()
+
+        kinds = {alert.kind for alert in result.alerts}
+
+        assert AlertKind.OVERDUE in kinds
+        assert AlertKind.GRACE_TIMEOUT not in kinds
+        assert not any(alert.triggers_lock for alert in result.alerts)
+
+    async def test_the_overdue_reminder_repeats_every_five_minutes(
+        self, engine, pool_table, clock
+    ):
+        """The nag is the enforcement, so unlike every other alert this one recurs."""
+        engine.start_session(unit_id=POOL, duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        first = await engine.tick()
+
+        clock.advance(minutes=5)
+        second = await engine.tick()
+
+        clock.advance(minutes=5)
+        third = await engine.tick()
+
+        for result in (first, second, third):
+            assert [alert.kind for alert in result.alerts] == [AlertKind.OVERDUE]
+
+        # It counts up, and counts from the end of the paid hour rather than from the
+        # end of grace — the minutes shown are the minutes the manager has to charge for.
+        assert "5 min over" in first.alerts[0].message
+        assert "10 min over" in second.alerts[0].message
+        assert "15 min over" in third.alerts[0].message
+
+    async def test_the_reminder_does_not_repeat_on_every_tick(
+        self, engine, pool_table, clock
+    ):
+        """The engine ticks once a second between reminders.
+
+        Sixty toasts a minute is not an alert, it is a reason to stop reading them.
+        """
+        engine.start_session(unit_id=POOL, duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        await engine.tick()
+
+        for _ in range(30):
+            clock.advance(seconds=1)
+
+            assert (await engine.tick()).alerts == ()
+
+    async def test_a_table_bills_and_sells_exactly_like_a_pc(
+        self, engine, pool_table, clock
+    ):
+        """The half of this that needed no new code, asserted so it stays that way."""
+        session_id = engine.start_session(unit_id=POOL, duration_minutes=60)
+
+        clock.advance(minutes=60)
+        sale = engine.end_session(session_id=session_id, payment_method=PaymentMethod.UPI)
+
+        assert sale.amount_paise == rupees(200)
+        assert unit_state(pool_table, POOL) is UnitState.AVAILABLE
+
+        with unit_of_work(pool_table) as db:
+            assert db.get(Sale, sale.id) is not None
+
+    async def test_a_pc_on_the_same_floor_still_locks(
+        self, engine, pool_table, clock, commands
+    ):
+        """Enforcement is a property of the unit, not a mode the whole venue is in."""
+        engine.start_session(unit_id=POOL, duration_minutes=60)
+        engine.start_session(unit_id=PC, duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        await engine.tick()
+
+        assert unit_state(pool_table, POOL) is UnitState.OVERTIME
+        assert unit_state(pool_table, PC) is UnitState.LOCKED
+        assert (PC, True) in commands
+
+    async def test_paying_up_clears_the_reminder(self, engine, pool_table, clock):
+        """The customer settles and buys another hour; the nagging has to stop."""
+        session_id = engine.start_session(unit_id=POOL, duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        await engine.tick()
+
+        engine.extend_session(session_id=session_id, minutes=60)
+        await engine.tick()
+
+        assert unit_state(pool_table, POOL) is UnitState.ACTIVE
+        assert (await engine.tick()).alerts == ()
+
+
+class TestEnforcementFollowsTheUnitType:
+    async def test_the_defaults_match_what_each_type_can_actually_do(self, pool_table):
+        with unit_of_work(pool_table) as db:
+            assert db.get(Unit, PC).enforcement is EnforcementMode.SOFTWARE
+            assert db.get(Unit, PS5).enforcement is EnforcementMode.RELAY
+            assert db.get(Unit, POOL).enforcement is EnforcementMode.MANUAL
+
+    async def test_only_a_manual_unit_is_unenforced(self, pool_table):
+        with unit_of_work(pool_table) as db:
+            assert db.get(Unit, PC).is_enforced
+            assert db.get(Unit, PS5).is_enforced
+            assert not db.get(Unit, POOL).is_enforced
+
+    async def test_a_pc_can_be_set_manual_while_its_agent_is_missing(
+        self, factory, clock, commands
+    ):
+        """The third case this buys: a machine on the floor with no agent installed.
+
+        It still gets timing, billing and alerts. What it does not get is a lock command
+        sent into nothing while the manager assumes the machine cut out.
+        """
+        with unit_of_work(factory) as db:
+            db.add_all(
+                [
+                    Unit(
+                        id="unit-new-pc",
+                        venue_id=VENUE,
+                        name="Nova 12",
+                        type=UnitType.PC,
+                        enforcement=EnforcementMode.MANUAL,
+                    ),
+                    Pricing(
+                        venue_id=VENUE,
+                        unit_type=UnitType.PC,
+                        hourly_rate_paise=rupees(120),
+                        effective_from=datetime(2026, 1, 1, tzinfo=UTC),
+                    ),
+                ]
+            )
+
+        async def sink(unit_id: str, lock: bool) -> None:
+            commands.append((unit_id, lock))
+
+        engine = SessionEngine(
+            factory, venue_id=VENUE, clock=clock, command_sink=sink
+        )
+        engine.start_session(unit_id="unit-new-pc", duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        result = await engine.tick()
+
+        assert unit_state(factory, "unit-new-pc") is UnitState.OVERTIME
+        assert not any(lock for _, lock in commands)
+        assert {alert.kind for alert in result.alerts} == {AlertKind.OVERDUE}
 
 
 class TestExtending:

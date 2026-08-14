@@ -362,7 +362,10 @@ class SessionEngine:
 
             countdown = self.countdown_for(session)
             target = lifecycle.derive_state(
-                countdown, warning_seconds=self._warning_seconds, current=unit.state
+                countdown,
+                warning_seconds=self._warning_seconds,
+                current=unit.state,
+                enforced=unit.is_enforced,
             )
 
             self._move(
@@ -581,6 +584,7 @@ class SessionEngine:
                     countdown,
                     warning_seconds=self._warning_seconds,
                     current=unit.state,
+                    enforced=unit.is_enforced,
                 )
 
                 change = self._move(
@@ -593,7 +597,10 @@ class SessionEngine:
                 # Desired state, compared against what the agent was last told. The
                 # lock command follows state rather than the alert, so a restarted
                 # control server re-asserts a lock it never sent itself.
-                should_lock = target is UnitState.LOCKED
+                # A manual unit can never be locked, so it never generates a command.
+                # Without this guard the hub would log "no agent connected" for every
+                # pool table on the floor, once a second, forever.
+                should_lock = unit.is_enforced and target is UnitState.LOCKED
 
                 # An unknown unit is assumed unlocked, which is both the truth for a
                 # freshly started session and the safe assumption after a restart: a
@@ -615,6 +622,7 @@ class SessionEngine:
                         countdown=countdown,
                         warning_seconds=self._warning_seconds,
                         ledger=self._ledger,
+                        enforced=unit.is_enforced,
                     )
                 )
 

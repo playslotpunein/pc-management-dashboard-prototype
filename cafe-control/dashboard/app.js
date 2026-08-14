@@ -38,6 +38,28 @@
     maintenance: { label: "Maintenance",icon: "i-maintenance", rank: 7 },
   };
 
+  /** What each unit type is called on screen. Also the order things are listed in. */
+  const TYPE_LABEL = {
+    pc: "PC",
+    ps5: "PS5",
+    sim: "Sim rig",
+    pool: "Pool table",
+    snooker: "Snooker table",
+  };
+
+  const UNIT_TYPES = Object.keys(TYPE_LABEL);
+
+  /** How a unit's time is actually held when it runs out.
+   *
+   *  Worth showing on the card. A manager glancing at an overtime pool table needs to
+   *  know that nothing is going to stop it — the sentence "you have to walk over" is
+   *  the whole difference between this and a PC. */
+  const ENFORCEMENT = {
+    software: { label: "Agent lock", hint: "The agent locks this machine when grace runs out." },
+    relay:    { label: "Relay cut",  hint: "The smart relay cuts this display when grace runs out." },
+    manual:   { label: "Manual",     hint: "Nothing can lock this. You will be reminded every 5 minutes." },
+  };
+
   /** States where a customer is mid-session and the unit cannot be sold. */
   const OCCUPIED = new Set(["active", "warning", "overtime", "locked"]);
 
@@ -54,6 +76,7 @@
     linkDown: false,
     filterState: "all",
     filterZone: "all",
+    filterType: "all",
     sort: "urgency",
     query: "",
     busy: new Set(),
@@ -179,12 +202,17 @@
     return negative ? `+${body}` : body;
   }
 
-  function visibleUnits() {
+  /** Everything the kind, zone and search filters allow — before the state chips.
+   *
+   *  Split out because the chips are counted over exactly this set. Counting them over
+   *  the whole venue instead makes a chip that reads "Locked 2" while the kind filter is
+   *  on the snooker tables, and clicking it lands the manager on an empty grid. */
+  function candidateUnits() {
     const query = state.query.trim().toLowerCase();
 
-    let rows = state.units.filter((unit) => {
-      if (state.filterState !== "all" && unit.state !== state.filterState) return false;
+    return state.units.filter((unit) => {
       if (state.filterZone !== "all" && (unit.zone || "") !== state.filterZone) return false;
+      if (state.filterType !== "all" && unit.type !== state.filterType) return false;
 
       if (!query) return true;
 
@@ -192,6 +220,12 @@
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(query));
     });
+  }
+
+  function visibleUnits() {
+    const rows = candidateUnits().filter(
+      (unit) => state.filterState === "all" || unit.state === state.filterState
+    );
 
     const rank = (unit) => STATES[unit.state]?.rank ?? 9;
 
@@ -272,8 +306,15 @@
   }
 
   function renderChips() {
-    const counts = { all: state.units.length };
-    state.units.forEach((u) => { counts[u.state] = (counts[u.state] || 0) + 1; });
+    const candidates = candidateUnits();
+    const counts = { all: candidates.length };
+
+    candidates.forEach((u) => { counts[u.state] = (counts[u.state] || 0) + 1; });
+
+    // A chip can vanish when the kind changes — there is no "Locked" among the tables.
+    // Left selected it would show an empty grid with nothing on screen explaining why,
+    // so the selection falls back to All.
+    if (state.filterState !== "all" && !counts[state.filterState]) state.filterState = "all";
 
     const chips = [["all", "All"]].concat(
       Object.entries(STATES)
@@ -287,8 +328,14 @@
   }
 
   function renderZones() {
+    // Narrowed by the kind above it: picking the snooker tables should not then offer
+    // "Battle Zone", which has none in it. Kind is the outer choice, zone the inner one.
     const select = el("zoneFilter");
-    const zones = [...new Set(state.units.map((u) => u.zone).filter(Boolean))].sort();
+    const scoped = state.filterType === "all"
+      ? state.units
+      : state.units.filter((u) => u.type === state.filterType);
+
+    const zones = [...new Set(scoped.map((u) => u.zone).filter(Boolean))].sort();
     const current = state.filterZone;
 
     select.innerHTML =
@@ -299,11 +346,38 @@
     state.filterZone = select.value;
   }
 
+  function renderTypes() {
+    /* Only lists the kinds this venue actually has, so a pure snooker parlour is not
+       offered a PS5 filter and a PC café is not offered a table one. Counted alongside,
+       because "Pool table 4" is the number a manager wants when the tables are the part
+       of the floor they are responsible for. */
+    const select = el("typeFilter");
+    const counts = {};
+
+    state.units.forEach((u) => { counts[u.type] = (counts[u.type] || 0) + 1; });
+
+    const present = UNIT_TYPES.filter((t) => counts[t]);
+    const current = state.filterType;
+
+    select.innerHTML =
+      `<option value="all">All kinds (${state.units.length})</option>` +
+      present
+        .map((t) => `<option value="${esc(t)}">${esc(TYPE_LABEL[t])} (${counts[t]})</option>`)
+        .join("");
+
+    select.value = present.includes(current) ? current : "all";
+    state.filterType = select.value;
+  }
+
   function renderCard(unit) {
     const meta = STATES[unit.state] || { label: unit.state, icon: "i-available" };
     const busy = state.busy.has(unit.id);
     const urgent = URGENT.has(unit.state);
     const occupied = OCCUPIED.has(unit.state);
+
+    // Flagged only when it is the exception. Stamping "Agent lock" on every PC in the
+    // room is noise; the one a manager has to walk over to is the one worth marking.
+    const manual = unit.enforcement === "manual";
 
     let body = "";
 
@@ -314,10 +388,16 @@
 
       // "open / remaining" reads as nonsense on an open-ended walk-in, and the manager
       // needs to know at a glance that this one has no deadline to run out.
+      // A table that has run past its grace stays in OVERTIME for as long as the
+      // customers stay on it, so "over by" has to say plainly that no lock is coming.
+      // Reading it as an ordinary overtime would leave a manager waiting for something
+      // to happen that never will.
       const timeLabel = remaining === null
         ? "no deadline · billed by time used"
         : over
-          ? (unit.state === "locked" ? "grace used up" : "over by")
+          ? (unit.state === "locked"
+              ? "grace used up"
+              : manual ? "over by · nothing will lock it" : "over by")
           : "remaining";
 
       body = `
@@ -339,7 +419,7 @@
         </div>`;
     } else if (unit.state === "available") {
       body = `
-        <div class="card__sub">Idle · ${esc(unit.type.toUpperCase())}</div>
+        <div class="card__sub">Idle · ${esc(TYPE_LABEL[unit.type] || unit.type)}</div>
         <div class="card__actions">
           <button class="btn btn--primary" data-act="start" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>Start session</button>
           <button class="btn" data-act="maint-on" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>Maintenance</button>
@@ -361,10 +441,13 @@
             <h3 class="card__title">${esc(unit.name)}</h3>
             <div class="card__sub">${esc(unit.zone || "—")}</div>
           </div>
-          <span class="badge">
-            <svg width="14" height="14" aria-hidden="true"><use href="#${meta.icon}"/></svg>
-            ${esc(meta.label)}
-          </span>
+          <div class="card__badges">
+            ${manual ? `<span class="badge badge--manual" title="${esc(ENFORCEMENT.manual.hint)}">Manual</span>` : ""}
+            <span class="badge">
+              <svg width="14" height="14" aria-hidden="true"><use href="#${meta.icon}"/></svg>
+              ${esc(meta.label)}
+            </span>
+          </div>
         </div>
         ${body}
       </article>`;
@@ -373,7 +456,6 @@
 
   // ------------------------------------------------------------------- sales
 
-  const TYPE_LABEL = { pc: "PC", ps5: "PS5", sim: "Sim rig" };
   const METHOD_LABEL = { cash: "Cash", upi: "UPI", card: "Card", paid_online: "Paid online" };
 
   const timeOfDay = (iso) =>
@@ -449,7 +531,6 @@
 
   // ----------------------------------------------------------------- pricing
 
-  const UNIT_TYPES = ["pc", "ps5", "sim"];
 
   function renderPricing() {
     el("pricingGrid").innerHTML = UNIT_TYPES.map((type) => {
@@ -577,8 +658,13 @@
 
     renderKpis();
     renderDistribution();
-    renderChips();
+
+    // Order matters: each of these can reset the filter below it when the choice it
+    // held no longer exists, and the chips are counted from whatever the two above
+    // them settled on. Run the other way round and the counts are a frame stale.
+    renderTypes();
     renderZones();
+    renderChips();
 
     const rows = visibleUnits();
 
@@ -663,18 +749,46 @@
     openModal("Add a unit", `
       <label class="field"><span>Name</span><input id="m-name" type="text" placeholder="Nova" /></label>
       <label class="field"><span>Type</span>
-        <select id="m-type"><option value="pc">PC</option><option value="ps5">PS5</option><option value="sim">Sim rig</option></select></label>
+        <select id="m-type">
+          ${UNIT_TYPES.map((t) => `<option value="${esc(t)}">${esc(TYPE_LABEL[t])}</option>`).join("")}
+        </select></label>
       <label class="field"><span>Zone</span><input id="m-zone" type="text" placeholder="Battle Zone" /></label>
+      <label class="field"><span>When time runs out</span>
+        <select id="m-enforce">
+          <option value="">Whatever this type normally does</option>
+          ${Object.entries(ENFORCEMENT).map(([key, meta]) =>
+            `<option value="${esc(key)}">${esc(meta.label)} — ${esc(meta.hint)}</option>`).join("")}
+        </select></label>
+      <p class="modal__note" id="m-enforce-note"></p>
       <div class="modal__actions">
         <button class="btn" type="button" data-close>Cancel</button>
         <button class="btn btn--primary" id="m-go" type="button">Add</button>
       </div>`, () => {
+      // Left on the default, the server picks from the type. The note spells out what
+      // that will be, because "a PS5 cannot be software-locked" is not something the
+      // person adding a unit at the counter should be expected to already know.
+      const note = () => {
+        const chosen = el("m-enforce").value;
+        const implied = { pc: "software", sim: "software", ps5: "relay", pool: "manual", snooker: "manual" };
+        const mode = chosen || implied[el("m-type").value] || "manual";
+
+        el("m-enforce-note").textContent = ENFORCEMENT[mode].hint;
+      };
+
+      el("m-type").onchange = note;
+      el("m-enforce").onchange = note;
+      note();
+
       el("m-go").onclick = async () => {
         const payload = {
           name: el("m-name").value.trim(),
           type: el("m-type").value,
           zone: el("m-zone").value.trim(),
         };
+
+        // Omitted rather than sent as null, so the server's type-derived default is
+        // what fills it in.
+        if (el("m-enforce").value) payload.enforcement = el("m-enforce").value;
 
         if (!payload.name) { toast("A unit needs a name", true); return; }
 
@@ -839,6 +953,7 @@
   el("addBtn").onclick = promptAddUnit;
   el("search").oninput = (e) => { state.query = e.target.value; render(); };
   el("zoneFilter").onchange = (e) => { state.filterZone = e.target.value; render(); };
+  el("typeFilter").onchange = (e) => { state.filterType = e.target.value; savePrefs(); render(); };
   el("sortBy").onchange = (e) => { state.sort = e.target.value; savePrefs(); render(); };
 
   // Theme and filters are the only things kept locally. They are presentation, and
@@ -846,7 +961,13 @@
   function savePrefs() {
     try {
       localStorage.setItem("playslot.prefs",
-        JSON.stringify({ theme: document.documentElement.dataset.theme, sort: state.sort }));
+        JSON.stringify({
+          theme: document.documentElement.dataset.theme,
+          sort: state.sort,
+          // Kept because someone running the tables upstairs sets it once a shift and
+          // should not have to set it again after every refresh.
+          filterType: state.filterType,
+        }));
     } catch { /* private browsing; prefs simply do not persist */ }
   }
 
@@ -855,6 +976,8 @@
       const saved = JSON.parse(localStorage.getItem("playslot.prefs") || "{}");
       if (saved.theme) document.documentElement.dataset.theme = saved.theme;
       if (saved.sort) { state.sort = saved.sort; el("sortBy").value = saved.sort; }
+      // renderTypes() drops it back to "all" if the venue no longer has that kind.
+      if (saved.filterType) state.filterType = saved.filterType;
     } catch { /* ignore */ }
   }
 

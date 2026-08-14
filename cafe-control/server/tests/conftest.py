@@ -71,6 +71,36 @@ def seeded(factory, clock):
 
 
 @pytest.fixture
+def pool_table(seeded):
+    """A snooker table, added on top of the PC and PS5.
+
+    Kept out of ``seeded`` rather than folded into it, so that every existing test keeps
+    running against exactly the floor it was written for.
+    """
+    with unit_of_work(seeded) as db:
+        db.add_all(
+            [
+                Unit(
+                    id="unit-pool-01",
+                    venue_id=VENUE,
+                    name="Table 1",
+                    type=UnitType.SNOOKER,
+                    zone="Upstairs",
+                ),
+                Pricing(
+                    venue_id=VENUE,
+                    unit_type=UnitType.SNOOKER,
+                    hourly_rate_paise=rupees(200),
+                    overtime_rate_paise_per_minute=rupees(4),
+                    effective_from=datetime(2026, 1, 1, tzinfo=UTC),
+                ),
+            ]
+        )
+
+    return seeded
+
+
+@pytest.fixture
 def commands() -> list[tuple[str, bool]]:
     """Captures what the engine would send to the agents."""
     return []

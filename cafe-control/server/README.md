@@ -46,7 +46,7 @@ environment variables. Override with `PLAYSLOT_`-prefixed variables or a `.env`:
 | `PLAYSLOT_BUSINESS_DAY_STARTS_HOUR` | `6` | An 11pm session belongs to that evening's shift report |
 
 ```bash
-./.venv/bin/python -m pytest        # 150 tests
+./.venv/bin/python -m pytest        # 161 tests
 ```
 
 ---
@@ -61,6 +61,11 @@ curl -X POST localhost:8000/pricing -H 'Content-Type: application/json' \
 
 curl -X POST localhost:8000/units -H 'Content-Type: application/json' \
   -d '{"name":"Nova","type":"pc","zone":"Battle Zone"}'
+
+# Types: pc · ps5 · sim · pool · snooker. A table is timed and billed like anything
+# else; what it cannot do is lock, so it is reminded instead. See "The state machine".
+curl -X POST localhost:8000/units -H 'Content-Type: application/json' \
+  -d '{"name":"Table 1","type":"snooker","zone":"Upstairs"}'
 
 curl -X POST localhost:8000/sessions -H 'Content-Type: application/json' \
   -d '{"unit_id":"<id>","duration_minutes":60,"customer_ref":"Rohan M."}'
@@ -95,6 +100,30 @@ Three of these are counter-intuitive on purpose:
 
 `active → locked` is *illegal*. The only route is through `overtime`, so grace can never
 be skipped. `tests/test_lifecycle.py` asserts this directly.
+
+### What "locked" means depends on the unit
+
+`locked` assumes something can do the locking. A pool table cannot be locked, and neither
+can a PC whose agent has not been installed yet, so **enforcement is a property of the
+unit** rather than something inferred from its type at the point of use:
+
+| `enforcement` | What holds the time limit | Default for |
+|---|---|---|
+| `software` | The agent locks the machine | `pc`, `sim` |
+| `relay` | The smart relay cuts the display | `ps5` |
+| `manual` | Nothing. The manager walks over | `pool`, `snooker` |
+
+The default follows the type and can be overridden per unit — set a new PC to `manual`
+while its agent is still being installed and it keeps timing, billing and alerts without
+the engine dispatching lock commands into nothing.
+
+A `manual` unit **never reaches `locked`**. It stays in `overtime` for as long as the
+customers stay on it, however far past grace that is. Showing a padlock next to four
+people still playing would tell the manager the floor is under control when it is not.
+
+What it gets instead is `AlertKind.OVERDUE`, and — alone among the alerts — it **repeats
+every five minutes**. On a unit nothing can lock, the nag *is* the enforcement: firing
+once and going quiet would let a table run an hour over unnoticed on a busy evening.
 
 **Missed ticks.** If the server is down across an expiry, a unit can be `active` while the
 clock says `locked`. Rather than relaxing the rule, `lifecycle.path_to` walks the

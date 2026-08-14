@@ -46,6 +46,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from playslot.enums import (
+    DEFAULT_ENFORCEMENT,
+    EnforcementMode,
     PaymentMethod,
     PaymentStatus,
     SessionSource,
@@ -123,6 +125,23 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
+def _enforcement_for(context: Any) -> EnforcementMode:
+    """Default a unit's enforcement from its type, at insert time.
+
+    Derived here rather than left to the API so that *every* path which creates a unit —
+    a route, a seed script, a test — gets it right. A flat default of SOFTWARE would
+    quietly arm lock commands against a pool table, and the mistake would only surface as
+    "no agent connected" logged once a second forever.
+    """
+    unit_type = context.get_current_parameters().get("type")
+
+    try:
+        return DEFAULT_ENFORCEMENT[UnitType(unit_type)]
+    except (ValueError, KeyError):
+        # An unknown type cannot be enforced by something we do not understand.
+        return EnforcementMode.MANUAL
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -148,8 +167,16 @@ class Unit(Base):
     #: not need a correlated subquery per card on every poll.
     current_session_id: Mapped[str | None] = mapped_column(String(36), default=None)
 
-    #: PS5 only: the relay that cuts the display. Null on PCs and sim units, which never
-    #: touch that path.
+    #: How this unit's time limit is actually enforced. Defaults from the type — a PC is
+    #: locked by its agent, a PS5 by a relay, a pool table by the manager walking over —
+    #: but stored per unit so a venue can override it. A PC awaiting agent installation
+    #: runs as MANUAL and still gets timing, billing and alerts from day one.
+    enforcement: Mapped[EnforcementMode] = mapped_column(
+        EnumValue(EnforcementMode), default=lambda context: _enforcement_for(context)
+    )
+
+    #: Relay-enforced units only: the smart plug that cuts the display. Null everywhere
+    #: else, which never touches that path.
     relay_address: Mapped[str | None] = mapped_column(String(128), default=None)
 
     notes: Mapped[str] = mapped_column(Text, default="")
@@ -161,6 +188,15 @@ class Unit(Base):
     sessions: Mapped[list[Session]] = relationship(back_populates="unit")
 
     __table_args__ = (Index("ix_units_venue_state", "venue_id", "state"),)
+
+    @property
+    def is_enforced(self) -> bool:
+        """Whether anything can actually hold this unit shut."""
+        return self.enforcement is not EnforcementMode.MANUAL
+
+    @staticmethod
+    def default_enforcement(unit_type: UnitType) -> EnforcementMode:
+        return DEFAULT_ENFORCEMENT.get(unit_type, EnforcementMode.MANUAL)
 
 
 class Session(Base):

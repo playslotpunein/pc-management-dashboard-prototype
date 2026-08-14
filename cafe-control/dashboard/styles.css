@@ -475,6 +475,16 @@ button { font-family: inherit; }
 
 /* Card internals and modal fields used by the rewired dashboard. */
 .card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.card__badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* "Manual" is not a state, it is a fact about the unit: a pool table, or a PC with no
+   agent on it yet. Drawn in neutral ink rather than the state colour so it reads as a
+   note and never competes with the badge saying what the unit is doing right now. */
+.badge--manual { color: var(--muted); background: var(--surface-2); border-color: var(--hairline); }
+
+/* And it does not pulse on an urgent card. The pulse means "look at this now"; the
+   enforcement mode has not changed and has nothing to announce. */
+.card--urgent .badge--manual { animation: none; }
 .card__title { font-size: 16px; font-weight: 700; margin: 0; }
 .card__sub { font-size: 12.5px; color: var(--muted); }
 
@@ -488,6 +498,7 @@ button { font-family: inherit; }
 .field input:focus, .field select:focus { outline: 2px solid var(--st-active); outline-offset: 1px; }
 
 .modal__lead { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+.modal__note { margin: -6px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
 .modal__actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
 
 .chip--on { border-color: var(--st, var(--ink)); color: var(--st, var(--ink)); background: var(--st-t, transparent); }
