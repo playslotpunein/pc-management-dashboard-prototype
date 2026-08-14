@@ -747,7 +747,7 @@
 
   function promptAddUnit() {
     openModal("Add a unit", `
-      <label class="field"><span>Name</span><input id="m-name" type="text" placeholder="Nova" /></label>
+      <label class="field"><span>Name</span><input id="m-name" type="text" placeholder="PC 1" /></label>
       <label class="field"><span>Type</span>
         <select id="m-type">
           ${UNIT_TYPES.map((t) => `<option value="${esc(t)}">${esc(TYPE_LABEL[t])}</option>`).join("")}
