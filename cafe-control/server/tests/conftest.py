@@ -47,7 +47,6 @@ def seeded(factory, clock):
                     name="Console 1",
                     type=UnitType.PS5,
                     zone="Console Bay",
-                    relay_address="192.168.1.50",
                 ),
                 Pricing(
                     venue_id=VENUE,

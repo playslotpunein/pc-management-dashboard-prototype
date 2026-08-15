@@ -49,6 +49,33 @@ Colour never carries the meaning alone: every card pairs its colour with an icon
 written label, so the ramp still reads for a colourblind manager and under the washed-out
 light of a counter.
 
+That is not a slogan — the steps are measured. Every adjacent pair is checked for
+separation under simulated protanopia and deuteranopia, and against the surface for
+contrast, in both themes. Two of the original values were wrong in ways that do not
+show up by looking: `scheduled` sat 0.5 ΔE from `active` under deuteranopia, which for a
+red-green colourblind manager made two states literally the same colour, and `warning`
+was below the 3:1 contrast floor on white. Both are fixed.
+
+### The floor status bar
+
+Five bands, each one a different thing to do:
+
+| Band | States | Meaning |
+|---|---|---|
+| Free | `available` | sell it |
+| In play | `scheduled`, `active` | nothing to do |
+| Ending soon | `warning` | go offer an extension |
+| Needs you | `overtime`, `locked` | go deal with it |
+| Out of service | `maintenance` | — |
+
+It used to draw all seven states. That was wrong twice over. It duplicated the chips
+directly below it — which carry every state, its own colour, its count, and a click —
+while being harder to read, because seven bands of colour is not something anyone takes
+in at a glance. And it could not be *made* readable: `warning`, `overtime` and `locked`
+are three warm hues in a row, and in dark mode the usable lightness band is only
+0.48–0.67 wide. Measured, adjacent pairs came out at ΔE 2.2 under deuteranopia against a
+target of 8. No choice of hexes fixes that; fewer bands does.
+
 **"Owed on the floor"** is the KPI worth watching. It is the sum of in-progress bills — what
 the floor owes *right now*, not what has already been collected. A rollup of closed
 sessions alone reconciles at midnight and is useless at 8pm.

@@ -35,19 +35,23 @@ class EnforcementMode(StrEnum):
     #: An agent holds the lock: input blocking plus a fullscreen overlay.
     SOFTWARE = "software"
 
-    #: A smart relay cuts the display. PS5 stations, where no agent is possible.
-    RELAY = "relay"
-
-    #: Nothing is locked. The system alerts and the manager handles it. Pool and snooker
-    #: tables, and any unit not yet wired for enforcement.
+    #: Nothing is locked by the system. It times, bills and alerts; a person handles the
+    #: rest — walking over to a pool table, or switching off the screen on a PS5 where
+    #: the venue has that option. Also the right setting for a PC whose agent is not
+    #: installed yet.
     MANUAL = "manual"
 
 
 #: What a unit type is enforced by unless the venue says otherwise.
+#:
+#: Only PCs and sim rigs run an agent, so only they can be held shut. Everything else is
+#: MANUAL: a console has no operating system to install an agent on, and a pool table is
+#: furniture. There is deliberately no automatic hardware cut here — no relay, no switched
+#: socket. The alert is the whole mechanism, and a person acts on it.
 DEFAULT_ENFORCEMENT: dict[UnitType, EnforcementMode] = {
     UnitType.PC: EnforcementMode.SOFTWARE,
     UnitType.SIM: EnforcementMode.SOFTWARE,
-    UnitType.PS5: EnforcementMode.RELAY,
+    UnitType.PS5: EnforcementMode.MANUAL,
     UnitType.POOL: EnforcementMode.MANUAL,
     UnitType.SNOOKER: EnforcementMode.MANUAL,
 }

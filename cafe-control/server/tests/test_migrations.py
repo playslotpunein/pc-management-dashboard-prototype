@@ -15,8 +15,25 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from playslot.db import create_all, create_db_engine, run_migrations
-from playslot.enums import UnitType
-from playslot.models import Unit
+from playslot.enums import EnforcementMode, UnitType
+from playslot.models import Session as SessionRow, Unit
+
+
+def upgrade_to(url: str, revision: str) -> None:
+    """Migrate to one specific revision, to stage a database as it was at that point."""
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    import playslot
+
+    root = Path(playslot.__file__).resolve().parent.parent
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    config.set_main_option("sqlalchemy.url", url)
+
+    command.upgrade(config, revision)
 
 EXPECTED_TABLES = {
     "units",
@@ -118,6 +135,108 @@ class TestAdoptingAnExistingDatabase:
 
         # A later start finds alembic_version present and takes the ordinary path.
         assert run_migrations(db_path) != "stamped"
+
+
+class TestMigratingATableOtherTablesPointAt:
+    """The case an empty test database cannot reach.
+
+    Batch mode rebuilds a table by dropping it and renaming a copy in. `sessions` and
+    `sales` hold foreign keys into `units`, so on SQLite the DROP fails with "FOREIGN KEY
+    constraint failed" — but only once those rows exist. Every migration test that seeds
+    units alone passes straight through it.
+    """
+
+    def test_a_units_migration_survives_referencing_rows(self, tmp_path):
+        """Upgrade *across* a units rebuild with a session pointing at the unit.
+
+        Stopping at the revision before the rebuild is the whole point. Migrating a fresh
+        database never rebuilds anything — it creates the tables — so seeding one and
+        re-running head is a no-op that passes no matter what the pragma does.
+        """
+        url = f"sqlite:///{tmp_path / 'venue.db'}"
+
+        # The last revision before units is rebuilt to drop relay_address.
+        upgrade_to(url, "2381490158aa")
+
+        engine = create_db_engine(url)
+
+        with Session(engine) as session:
+            session.add(Unit(id="u1", venue_id="v1", name="PC 1", type=UnitType.PC))
+            session.flush()
+            session.add(
+                SessionRow(
+                    id="s1",
+                    venue_id="v1",
+                    unit_id="u1",
+                    rate_snapshot_paise=12000,
+                    duration_minutes=60,
+                )
+            )
+            session.commit()
+
+        engine.dispose()
+
+        landed = run_migrations(url)
+
+        raw = sqlite3.connect(tmp_path / "venue.db")
+
+        try:
+            # The rebuild must not have taken the referencing rows with it.
+            assert list(raw.execute("SELECT id FROM sessions")) == [("s1",)]
+            assert list(raw.execute("SELECT id FROM units")) == [("u1",)]
+            assert list(raw.execute("PRAGMA foreign_key_check")) == []
+
+            # And the new revision has to be *recorded*, not merely executed. If the
+            # version stamp rolls back while the DDL sticks, every restart re-runs the
+            # migration — survivable here only because this one happens to be idempotent.
+            stamped = list(raw.execute("SELECT version_num FROM alembic_version"))
+
+            assert stamped == [(landed,)]
+            assert stamped != [("2381490158aa",)]
+        finally:
+            raw.close()
+
+    def test_a_console_stops_claiming_a_relay_it_never_had(self, tmp_path):
+        """'relay' is no longer a value the code can read; a leftover row raises."""
+        url = f"sqlite:///{tmp_path / 'venue.db'}"
+
+        upgrade_to(url, "2381490158aa")
+
+        raw = sqlite3.connect(tmp_path / "venue.db")
+        raw.execute(
+            "INSERT INTO units (id, venue_id, name, type, zone, state, enforcement, notes, "
+            "created_at) VALUES ('u1','v1','PS5 1','ps5','Bay','available','relay','',"
+            "'2026-08-01 10:00:00')"
+        )
+        raw.commit()
+        raw.close()
+
+        run_migrations(url)
+
+        engine = create_db_engine(url)
+
+        try:
+            with Session(engine) as session:
+                # Reading it at all is the assertion: an unmapped value raises here.
+                assert session.get(Unit, "u1").enforcement is EnforcementMode.MANUAL
+        finally:
+            engine.dispose()
+
+    def test_foreign_keys_are_on_again_afterwards(self, tmp_path):
+        """Migrating turns them off. Leaving them off would silently accept orphans."""
+        url = f"sqlite:///{tmp_path / 'venue.db'}"
+
+        run_migrations(url)
+
+        engine = create_db_engine(url)
+
+        try:
+            with engine.connect() as connection:
+                enabled = list(connection.exec_driver_sql("PRAGMA foreign_keys"))[0][0]
+        finally:
+            engine.dispose()
+
+        assert enabled == 1
 
 
 class TestSchemaMatchesModels:

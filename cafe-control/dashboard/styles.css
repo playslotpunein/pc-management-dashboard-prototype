@@ -194,7 +194,10 @@ button { font-family: inherit; }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; }
 .legend__item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); }
 .legend__item b { font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
-.dist__bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: var(--surface-2); gap: 2px; }
+/* The 2px gap between bands is the panel's own surface, not a track colour. White
+   doing the separating is what makes neighbouring fills read as separate without a
+   stroke around each one — a border would add ink that isn't data. */
+.dist__bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: var(--surface); gap: 2px; }
 .dist__seg { height: 100%; min-width: 2px; transition: flex-basis .5s ease; }
 .dist__seg--available { background: var(--available); }
 .dist__seg--in-use { background: var(--in-use); }
@@ -361,7 +364,7 @@ button { font-family: inherit; }
 /* ============================================================================
    Control-server states
    ----------------------------------------------------------------------------
-   The prototype had four statuses. The session engine has seven, and three of
+   The prototype had four statuses. The session engine has seven, and four of
    them are the escalation ramp a manager reads at a glance:
 
        active (blue) -> warning (amber) -> overtime (orange) -> locked (red)
@@ -369,22 +372,40 @@ button { font-family: inherit; }
    Colour alone never carries the meaning: every card pairs its colour with an
    icon and a written label, so the ramp still reads for a colourblind manager
    and in the washed-out light of a counter.
+
+   These steps are measured, not picked by eye. Every adjacent pair was checked
+   for separation under simulated protanopia and deuteranopia, and against the
+   surface for contrast. Two earlier values were wrong in ways nobody would spot
+   by looking:
+
+     * scheduled was #7c5cd6, a violet sitting 0.5 ΔE from the active blue under
+       deuteranopia — for a red-green colourblind manager the two states were
+       literally the same colour, and they render side by side. It is magenta now.
+     * warning was #d98a04 at 2.77:1 on white, under the 3:1 floor for a mark.
+       The deeper amber clears it.
+
+   What could not be fixed by choosing better hexes: warning, overtime and locked
+   are three warm hues in a row, and in dark mode the usable lightness band is
+   only 0.48-0.67 wide. No assignment separates all three there. That is why the
+   floor-status bar groups them rather than drawing all seven — see renderDistribution
+   in app.js — and why on cards and chips the icon and the written label, not the
+   colour, are what carry the state.
    ========================================================================== */
 :root {
   --st-available:   #0ca30c;
-  --st-scheduled:   #7c5cd6;
+  --st-scheduled:   #a21caf;
   --st-active:      #2a78d6;
-  --st-warning:     #d98a04;
-  --st-overtime:    #e0620d;
-  --st-locked:      #d03b3b;
+  --st-warning:     #c98500;
+  --st-overtime:    #d95926;
+  --st-locked:      #a11f2c;
   --st-maintenance: #64748b;
 
   --st-available-t:   rgba(12, 163, 12, 0.12);
-  --st-scheduled-t:   rgba(124, 92, 214, 0.14);
+  --st-scheduled-t:   rgba(162, 28, 175, 0.13);
   --st-active-t:      rgba(42, 120, 214, 0.12);
-  --st-warning-t:     rgba(217, 138, 4, 0.16);
-  --st-overtime-t:    rgba(224, 98, 13, 0.16);
-  --st-locked-t:      rgba(208, 59, 59, 0.14);
+  --st-warning-t:     rgba(201, 133, 0, 0.16);
+  --st-overtime-t:    rgba(217, 89, 38, 0.15);
+  --st-locked-t:      rgba(161, 31, 44, 0.14);
   --st-maintenance-t: rgba(100, 116, 139, 0.14);
 }
 
@@ -395,23 +416,23 @@ button { font-family: inherit; }
    light-mode status ramp against a dark ground. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --st-available:   #12b512;
-    --st-scheduled:   #9b83e8;
+    --st-available:   #10a310;
+    --st-scheduled:   #d55181;
     --st-active:      #3987e5;
-    --st-warning:     #f0a723;
-    --st-overtime:    #f57c25;
-    --st-locked:      #e05252;
+    --st-warning:     #d59400;
+    --st-overtime:    #e8703a;
+    --st-locked:      #e33d5c;
     --st-maintenance: #94a3b8;
   }
 }
 
 [data-theme="dark"] {
-  --st-available:   #12b512;
-  --st-scheduled:   #9b83e8;
+  --st-available:   #10a310;
+  --st-scheduled:   #d55181;
   --st-active:      #3987e5;
-  --st-warning:     #f0a723;
-  --st-overtime:    #f57c25;
-  --st-locked:      #e05252;
+  --st-warning:     #d59400;
+  --st-overtime:    #e8703a;
+  --st-locked:      #e33d5c;
   --st-maintenance: #94a3b8;
 }
 

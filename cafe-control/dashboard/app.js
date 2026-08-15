@@ -56,8 +56,7 @@
    *  the whole difference between this and a PC. */
   const ENFORCEMENT = {
     software: { label: "Agent lock", hint: "The agent locks this machine when grace runs out." },
-    relay:    { label: "Relay cut",  hint: "The smart relay cuts this display when grace runs out." },
-    manual:   { label: "Manual",     hint: "Nothing can lock this. You will be reminded every 5 minutes." },
+    manual:   { label: "Manual",     hint: "Nothing is locked. You will be reminded every 5 minutes, and you handle it — walk over, or switch the screen off." },
   };
 
   /** States where a customer is mid-session and the unit cannot be sold. */
@@ -286,22 +285,50 @@
   const rupees = (paise) =>
     `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  /** The floor summarised in five bands, each one a different thing to do about it.
+   *
+   *  It used to draw all seven states. That was a mistake twice over. It duplicated the
+   *  chips directly below — which carry every state, its own colour, its count, and a
+   *  click — while being harder to read, because seven bands of colour is not something
+   *  you take in at a glance. And it could not be made legible: warning, overtime and
+   *  locked are three warm hues in a row, and in dark mode the usable lightness band is
+   *  too narrow to separate three of them. Measured, adjacent pairs came out at ΔE 2.2
+   *  under deuteranopia where 8 is the target.
+   *
+   *  Grouped, the bar answers the question a bar should answer — how is the floor doing
+   *  — in colours that are far apart in both modes, and the chips keep the detail. */
+  const BANDS = [
+    { key: "available",   label: "Free",           states: ["available"] },
+    { key: "active",      label: "In play",        states: ["scheduled", "active"] },
+    { key: "warning",     label: "Ending soon",    states: ["warning"] },
+    { key: "locked",      label: "Needs you",      states: ["overtime", "locked"] },
+    { key: "maintenance", label: "Out of service", states: ["maintenance"] },
+  ];
+
   function renderDistribution() {
     const counts = {};
     state.units.forEach((u) => { counts[u.state] = (counts[u.state] || 0) + 1; });
 
     const total = state.units.length || 1;
 
-    el("distBar").innerHTML = Object.keys(STATES)
-      .filter((key) => counts[key])
-      .map((key) =>
-        `<span class="dist__seg u-${key}" style="width:${(counts[key] / total) * 100}%;background:var(--st)" title="${esc(STATES[key].label)}: ${counts[key]}"></span>`)
+    const bands = BANDS
+      .map((band) => ({
+        ...band,
+        count: band.states.reduce((sum, s) => sum + (counts[s] || 0), 0),
+      }))
+      .filter((band) => band.count);
+
+    el("distBar").innerHTML = bands
+      .map((band) =>
+        `<span class="dist__seg u-${band.key}" style="width:${(band.count / total) * 100}%;background:var(--st)" title="${esc(band.label)}: ${band.count}"></span>`)
       .join("");
 
-    el("legend").innerHTML = Object.keys(STATES)
-      .filter((key) => counts[key])
-      .map((key) =>
-        `<span class="legend__item u-${key}"><i class="dot" style="background:var(--st)"></i>${esc(STATES[key].label)} ${counts[key]}</span>`)
+    // The legend is the identity channel — never colour alone. Every band on the bar
+    // has a written label and a count here, which is also what lets the amber band sit
+    // where it does: a mark below 3:1 on the surface is legal with visible labels.
+    el("legend").innerHTML = bands
+      .map((band) =>
+        `<span class="legend__item u-${band.key}"><i class="dot" style="background:var(--st)"></i>${esc(band.label)} <b>${band.count}</b></span>`)
       .join("");
   }
 
@@ -769,7 +796,7 @@
       // person adding a unit at the counter should be expected to already know.
       const note = () => {
         const chosen = el("m-enforce").value;
-        const implied = { pc: "software", sim: "software", ps5: "relay", pool: "manual", snooker: "manual" };
+        const implied = { pc: "software", sim: "software", ps5: "manual", pool: "manual", snooker: "manual" };
         const mode = chosen || implied[el("m-type").value] || "manual";
 
         el("m-enforce-note").textContent = ENFORCEMENT[mode].hint;

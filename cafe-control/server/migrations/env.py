@@ -104,17 +104,46 @@ def run_migrations_online() -> None:
     connectable = create_db_engine(config.get_main_option("sqlalchemy.url"))
 
     with connectable.connect() as connection:
+        sqlite = connection.dialect.name == "sqlite"
+
+        # The other half of render_as_batch, and the half that only shows up on a
+        # database with real data in it.
+        #
+        # Batch mode rebuilds a table by dropping it and renaming a copy into place.
+        # `sessions` and `sales` carry foreign keys into `units`, so on SQLite — which
+        # enforces those — the DROP fails with "FOREIGN KEY constraint failed" and the
+        # migration dies half way. It does not fail on an empty table, so a migration
+        # can pass every test and then break on the one database that matters.
+        #
+        # The keys are re-enabled below. This must sit outside begin_transaction():
+        # SQLite ignores PRAGMA foreign_keys inside a transaction, which would leave the
+        # setting untouched and the failure exactly as it was.
+        #
+        # The commit closes the implicit transaction SQLAlchemy 2.0 opens around any
+        # statement, so Alembic starts from a clean connection and owns its own
+        # transaction rather than inheriting one. Belt and braces: migrations here run
+        # unattended on a counter PC at startup, where the failure would surface as a
+        # venue whose floor does not load.
+        if sqlite:
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
             compare_server_default=True,
-            render_as_batch=connection.dialect.name == "sqlite",
+            render_as_batch=sqlite,
             render_item=render_item,
         )
 
-        with context.begin_transaction():
-            context.run_migrations()
+        try:
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            if sqlite:
+                connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+                connection.commit()
 
 
 if context.is_offline_mode():

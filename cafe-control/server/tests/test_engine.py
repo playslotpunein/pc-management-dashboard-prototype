@@ -221,9 +221,9 @@ class TestTheCountdown:
 class TestTablesNothingCanLock:
     """Pool and snooker: timed and billed like everything else, held by nobody.
 
-    A table has no agent and no relay, so the engine's last resort is unavailable. It
-    runs the same clock, the same rates and the same sales, and where a PC would lock it
-    nags the manager instead.
+    A table has no agent, so the engine's last resort is unavailable. It runs the same
+    clock, the same rates and the same sales, and where a PC would lock it nags the
+    manager instead.
     """
 
     async def test_a_table_past_grace_stays_in_overtime(
@@ -358,16 +358,35 @@ class TestTablesNothingCanLock:
 
 class TestEnforcementFollowsTheUnitType:
     async def test_the_defaults_match_what_each_type_can_actually_do(self, pool_table):
+        """Only a machine running an agent can be held shut. Everything else is a person.
+
+        A console has no operating system to install an agent on, so it sits in the same
+        bucket as a pool table: timed, billed, alerted, and dealt with by whoever is at
+        the counter.
+        """
         with unit_of_work(pool_table) as db:
             assert db.get(Unit, PC).enforcement is EnforcementMode.SOFTWARE
-            assert db.get(Unit, PS5).enforcement is EnforcementMode.RELAY
+            assert db.get(Unit, PS5).enforcement is EnforcementMode.MANUAL
             assert db.get(Unit, POOL).enforcement is EnforcementMode.MANUAL
 
-    async def test_only_a_manual_unit_is_unenforced(self, pool_table):
+    async def test_only_a_software_unit_is_enforced(self, pool_table):
         with unit_of_work(pool_table) as db:
             assert db.get(Unit, PC).is_enforced
-            assert db.get(Unit, PS5).is_enforced
+            assert not db.get(Unit, PS5).is_enforced
             assert not db.get(Unit, POOL).is_enforced
+
+    async def test_a_console_gets_the_same_treatment_as_a_table(
+        self, engine, pool_table, clock, commands
+    ):
+        """No lock command is dispatched at a PS5, and it never shows LOCKED."""
+        engine.start_session(unit_id=PS5, duration_minutes=60)
+
+        clock.advance(minutes=65, seconds=1)
+        result = await engine.tick()
+
+        assert unit_state(pool_table, PS5) is UnitState.OVERTIME
+        assert not any(unit_id == PS5 and lock for unit_id, lock in commands)
+        assert any(alert.kind is AlertKind.OVERDUE for alert in result.alerts)
 
     async def test_a_pc_can_be_set_manual_while_its_agent_is_missing(
         self, factory, clock, commands

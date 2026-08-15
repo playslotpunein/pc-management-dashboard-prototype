@@ -168,16 +168,11 @@ class Unit(Base):
     current_session_id: Mapped[str | None] = mapped_column(String(36), default=None)
 
     #: How this unit's time limit is actually enforced. Defaults from the type — a PC is
-    #: locked by its agent, a PS5 by a relay, a pool table by the manager walking over —
-    #: but stored per unit so a venue can override it. A PC awaiting agent installation
-    #: runs as MANUAL and still gets timing, billing and alerts from day one.
+    #: locked by its agent; a console, a pool table, or a PC without its agent yet is
+    #: handled by a person — but stored per unit so a venue can override it.
     enforcement: Mapped[EnforcementMode] = mapped_column(
         EnumValue(EnforcementMode), default=lambda context: _enforcement_for(context)
     )
-
-    #: Relay-enforced units only: the smart plug that cuts the display. Null everywhere
-    #: else, which never touches that path.
-    relay_address: Mapped[str | None] = mapped_column(String(128), default=None)
 
     notes: Mapped[str] = mapped_column(Text, default="")
 

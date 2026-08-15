@@ -44,7 +44,6 @@ class UnitCreate(ApiModel):
     #: installation runs as MANUAL and still gets timing, billing and alerts.
     enforcement: EnforcementMode | None = None
 
-    relay_address: str | None = None
     notes: str = ""
 
 
@@ -56,7 +55,6 @@ class UnitRead(ApiModel):
     state: UnitState
     enforcement: EnforcementMode
     current_session_id: str | None
-    relay_address: str | None
     notes: str
 
 

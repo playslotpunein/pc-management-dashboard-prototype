@@ -110,8 +110,12 @@ unit** rather than something inferred from its type at the point of use:
 | `enforcement` | What holds the time limit | Default for |
 |---|---|---|
 | `software` | The agent locks the machine | `pc`, `sim` |
-| `relay` | The smart relay cuts the display | `ps5` |
-| `manual` | Nothing. The manager walks over | `pool`, `snooker` |
+| `manual` | Nothing. A person handles it | `ps5`, `pool`, `snooker` |
+
+**There is no automatic hardware cut** — no smart relay, no switched socket. A console has
+no operating system to put an agent on, so it sits in the same bucket as a pool table: the
+system times it, bills it and raises the alert, and whoever is at the counter deals with
+it — walking over, or switching the screen off where the room has that option.
 
 The default follows the type and can be overridden per unit — set a new PC to `manual`
 while its agent is still being installed and it keeps timing, billing and alerts without
