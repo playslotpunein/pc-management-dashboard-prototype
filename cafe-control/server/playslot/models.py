@@ -248,6 +248,12 @@ class Session(Base):
     #: venue policy mid-session cannot shorten someone's grace.
     grace_minutes: Mapped[int] = mapped_column(Integer, default=5)
 
+    #: Whether this unit's grace ending actually shuts it down, taken from the unit's
+    #: enforcement when the session started. Snapshotted for the same reason as the rate:
+    #: a manager switching a unit to MANUAL at 9pm must not retroactively start charging
+    #: overtime for the hour it spent locked beforehand.
+    locks_at_grace_end: Mapped[bool] = mapped_column(Boolean, default=False)
+
     unit: Mapped[Unit] = relationship(back_populates="sessions")
 
     __table_args__ = (

@@ -173,6 +173,17 @@ computation the sale is written from rather than a second one that could disagre
 that call fails the modal falls back to the running total from the card: mid-shift, being
 unable to take payment is worse than an unitemised one.
 
+A note under the bill explains the gap between the clock and the total, because that is
+the question actually asked at the counter — and the same gap means opposite things on
+different units:
+
+- **A locked PC:** *"Played 181 min against 60 booked, but it locked when the grace ran
+  out — the 116 min since are **not charged**."* The machine was off; those minutes are
+  not the customer's to pay for.
+- **A pool table:** *"116 min of that is overtime. Nothing locks this unit, so the
+  overrun is charged."* They were playing the whole time.
+- **Inside grace:** *"3 min past the booked time, inside the grace period. Not charged."*
+
 ---
 
 ## Files

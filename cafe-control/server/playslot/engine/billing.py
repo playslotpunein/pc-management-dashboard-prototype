@@ -80,6 +80,12 @@ class Bill:
     #: Minutes beyond booked time *and* beyond grace. These are the billed overtime.
     overtime_minutes: int
 
+    #: Minutes that elapsed but are deliberately not charged, because the unit locked
+    #: when its grace ran out and the customer could not use it. Non-zero only on a
+    #: unit something can actually lock; a pool table has no such minutes, which is why
+    #: its overrun is billed instead.
+    unbilled_minutes: int = 0
+
     def line(self, kind: str) -> BillLine | None:
         """Fetch a single line by kind, for tests and for the receipt renderer."""
         return next((line for line in self.lines if line.kind == kind), None)
@@ -114,6 +120,7 @@ def compute_bill(
     overtime_rate_paise_per_minute: Paise = 0,
     controller_surcharge_paise_per_hour: Paise = 0,
     extra_controllers: int = 0,
+    locks_at_grace_end: bool = False,
 ) -> Bill:
     """Produce the itemised bill for a session.
 
@@ -126,8 +133,14 @@ def compute_bill(
         overtime_rate_paise_per_minute: Penalty rate per minute once grace is consumed.
             Zero does not mean free — it means overtime is charged at the session's own
             hourly rate, prorated. Free time is what ``grace_minutes`` is for.
-        controller_surcharge_paise_per_hour: PS5 only; per extra controller.
+        controller_surcharge_paise_per_hour: Per extra controller, where the unit takes
+            them.
         extra_controllers: Controllers beyond the one included in the base rate.
+        locks_at_grace_end: True where something actually shuts the unit down when grace
+            runs out — an agent on a PC. Such a unit never accrues billable overtime,
+            because the minute overtime would start is the minute the machine locks. The
+            session stays open until the counter closes it, and those minutes are
+            reported as ``unbilled_minutes`` rather than charged.
     """
     actual = elapsed_minutes(started_at, ended_at)
     extension_minutes = sum(extension.minutes for extension in extensions)
@@ -204,6 +217,20 @@ def compute_bill(
     if booked > 0:
         overtime = max(0, actual - booked - grace_minutes)
 
+    # A unit that locks cannot run into billable overtime, because the moment overtime
+    # would begin is the moment the agent locks the machine. Everything after that is
+    # time the customer was shut out of, and charging for it bills them for a screen
+    # they could not use — the session stays open only until someone at the counter
+    # closes it, which might be an hour later on a busy evening.
+    #
+    # This is why the distinction is the unit's, not the type's. A pool table has
+    # nothing to lock, so its overrun is real play and is charged; a PC's is not.
+    unbilled = 0
+
+    if locks_at_grace_end and overtime > 0:
+        unbilled = overtime
+        overtime = 0
+
     if overtime > 0:
         if overtime_rate_paise_per_minute > 0:
             lines.append(
@@ -246,4 +273,5 @@ def compute_bill(
         actual_minutes=actual,
         booked_minutes=booked,
         overtime_minutes=overtime,
+        unbilled_minutes=unbilled,
     )

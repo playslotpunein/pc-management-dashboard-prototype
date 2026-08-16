@@ -298,6 +298,86 @@ class TestOvertimeAndGrace:
 
         assert bill.line("overtime").amount_paise == rupees(125)
 
+    def test_a_unit_that_locks_is_never_billed_for_overtime(self):
+        """It locked when grace ran out, so those minutes were not playable.
+
+        The session stays open until the counter closes it, which can be long after the
+        machine went dark. Charging for that bills the customer for a screen the system
+        itself switched off.
+        """
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=180),
+            overtime_rate_paise_per_minute=rupees(5),
+            locks_at_grace_end=True,
+        )
+
+        assert bill.actual_minutes == 180
+        assert bill.overtime_minutes == 0
+        assert bill.unbilled_minutes == 115
+        assert bill.line("overtime") is None
+        assert bill.total_paise == rupees(120)
+
+    def test_locking_does_not_touch_a_session_still_inside_its_grace(self):
+        """Nothing has locked yet, so there is nothing to waive and nothing to charge."""
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=63),
+            locks_at_grace_end=True,
+        )
+
+        assert bill.overtime_minutes == 0
+        assert bill.unbilled_minutes == 0
+        assert bill.total_paise == rupees(120)
+
+    def test_an_extension_restores_billing_past_the_old_deadline(self):
+        """Unlocking by extending means the new time is played, and charged.
+
+        Otherwise a manager who takes payment for another half hour would find it waived
+        as "locked time" — the customer pays and the till does not see it.
+        """
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=88),
+            extensions=[
+                Extension(
+                    minutes=30, granted_at=at(minutes=62), rate_snapshot_paise=RATE_120
+                )
+            ],
+            locks_at_grace_end=True,
+        )
+
+        # 90 booked, ended at 88: still inside its time, so nothing is waived.
+        assert bill.unbilled_minutes == 0
+        assert bill.total_paise == rupees(180)
+
+    def test_a_table_and_a_pc_at_the_same_elapsed_time_differ(self):
+        """The whole point of the distinction, in one comparison."""
+        common = dict(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=120),
+        )
+
+        table = compute_bill(**common, locks_at_grace_end=False)
+        machine = compute_bill(**common, locks_at_grace_end=True)
+
+        # The table was played for 55 min past grace and is charged for them.
+        assert table.overtime_minutes == 55
+        assert table.total_paise == rupees(230)
+
+        # The PC locked at 65 min; the rest is not the customer's to pay for.
+        assert machine.overtime_minutes == 0
+        assert machine.unbilled_minutes == 55
+        assert machine.total_paise == rupees(120)
+
     def test_an_open_ended_session_never_accrues_overtime(self):
         """It has no deadline to run past; every minute is already in the base line."""
         bill = compute_bill(

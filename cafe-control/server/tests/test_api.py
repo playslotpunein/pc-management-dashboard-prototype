@@ -42,14 +42,33 @@ def client(clock: FrozenClock):
 
 @pytest.fixture
 def stocked(client):
-    """One PC, priced."""
+    """One PC, priced. It locks when grace runs out, so it never accrues overtime."""
     client.post(
         "/pricing",
         json={"unit_type": "pc", "hourly_rate_paise": rupees(120)},
     )
 
     response = client.post(
-        "/units", json={"name": "Nova", "type": "pc", "zone": "Battle Zone"}
+        "/units", json={"name": "PC 1", "type": "pc", "zone": "Battle Zone"}
+    )
+
+    return response.json()["id"]
+
+
+@pytest.fixture
+def stocked_table(client):
+    """One pool table, priced, with no overtime penalty rate.
+
+    The combination that actually bills overtime: nothing locks it, so an overrun is real
+    play rather than a customer staring at a locked screen.
+    """
+    client.post(
+        "/pricing",
+        json={"unit_type": "pool", "hourly_rate_paise": rupees(120)},
+    )
+
+    response = client.post(
+        "/units", json={"name": "Pool 1", "type": "pool", "zone": "Upstairs"}
     )
 
     return response.json()["id"]
@@ -120,18 +139,18 @@ class TestSessionsOverHttp:
         assert bill["total"] == "₹120.00"
         assert client.get("/units").json()[0]["state"] == "active"
 
-    def test_ending_an_overrun_session_charges_for_the_overrun(
-        self, client, stocked, clock
+    def test_ending_an_overrun_table_charges_for_the_overrun(
+        self, client, stocked_table, clock
     ):
         """The bug this covers: overtime silently costing nothing.
 
-        ``stocked`` prices the PC without an overtime penalty, which is what the pricing
-        form submits by default. That used to mean overtime was skipped entirely, so a
-        customer who booked an hour and played an hour and a half paid for the hour and
-        walked out — with the dashboard showing a tidy, wrong total at the counter.
+        ``stocked_table`` prices the unit without an overtime penalty, which is what the
+        pricing form submits by default. That used to mean overtime was skipped entirely,
+        so a customer who booked an hour and played an hour and a half paid for the hour
+        and walked out — with the dashboard showing a tidy, wrong total at the counter.
         """
         session_id = client.post(
-            "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+            "/sessions", json={"unit_id": stocked_table, "duration_minutes": 60}
         ).json()["id"]
 
         clock.advance(minutes=95)
@@ -142,7 +161,7 @@ class TestSessionsOverHttp:
 
         overtime = [line for line in bill["lines"] if line["kind"] == "overtime"]
 
-        assert overtime, "no overtime line on a session 30 minutes past grace"
+        assert overtime, "no overtime line on a table 30 minutes past grace"
         assert overtime[0]["amount_paise"] == rupees(60)
 
         sale = client.post(f"/sessions/{session_id}/end", json={}).json()
@@ -150,10 +169,38 @@ class TestSessionsOverHttp:
         # ₹120 for the booked hour, plus 30 min at the same ₹120/hr.
         assert sale["amount_paise"] == rupees(180)
 
-    def test_the_stored_sale_keeps_the_overtime_line(self, client, stocked, clock):
-        """So the manager can still answer "why was it that much?" a week later."""
+    def test_a_locked_pc_is_not_charged_for_the_time_it_spent_locked(
+        self, client, stocked, clock
+    ):
+        """The other half, and the reason overtime cannot simply always be charged.
+
+        A PC locks the moment grace runs out, so from then on the customer is staring at
+        a locked screen. The session stays open until someone at the counter closes it,
+        which on a busy evening might be an hour — billing that hour charges them for a
+        machine the system itself shut off.
+        """
         session_id = client.post(
             "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+        ).json()["id"]
+
+        clock.advance(minutes=180)
+
+        bill = client.get(f"/sessions/{session_id}/bill").json()
+
+        assert bill["actual_minutes"] == 180
+        assert bill["overtime_minutes"] == 0
+        assert bill["unbilled_minutes"] == 115
+        assert [line["kind"] for line in bill["lines"]] == ["base"]
+
+        sale = client.post(f"/sessions/{session_id}/end", json={}).json()
+
+        # The booked hour, and not one paisa for the two hours it sat locked.
+        assert sale["amount_paise"] == rupees(120)
+
+    def test_the_stored_sale_keeps_the_overtime_line(self, client, stocked_table, clock):
+        """So the manager can still answer "why was it that much?" a week later."""
+        session_id = client.post(
+            "/sessions", json={"unit_id": stocked_table, "duration_minutes": 60}
         ).json()["id"]
 
         clock.advance(minutes=95)
@@ -165,10 +212,10 @@ class TestSessionsOverHttp:
         assert "overtime" in kinds
         assert sum(line["amount_paise"] for line in sale["lines"]) == sale["amount_paise"]
 
-    def test_the_preview_and_the_sale_agree(self, client, stocked, clock):
+    def test_the_preview_and_the_sale_agree(self, client, stocked_table, clock):
         """They are two calls into the same computation and must not diverge."""
         session_id = client.post(
-            "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+            "/sessions", json={"unit_id": stocked_table, "duration_minutes": 60}
         ).json()["id"]
 
         clock.advance(minutes=95)
@@ -327,7 +374,7 @@ class TestSalesListForTheShiftReport:
 
         sale = client.get("/sales").json()[0]
 
-        assert sale["unit_name"] == "Nova"
+        assert sale["unit_name"] == "PC 1"
         assert sale["customer_ref"] == "Rohan M."
         assert sale["amount"] == "₹120.00"
         assert sale["payment_method"] == "upi"

@@ -133,6 +133,11 @@ class BillRead(ApiModel):
     booked_minutes: int
     overtime_minutes: int
 
+    #: Elapsed but deliberately not charged, because the unit locked and the customer
+    #: could not use it. The counter needs this on screen: without it the bill looks
+    #: short against the clock, and the manager has no answer for why.
+    unbilled_minutes: int = 0
+
     @classmethod
     def of(cls, bill) -> BillRead:
         return cls(
@@ -150,6 +155,7 @@ class BillRead(ApiModel):
             actual_minutes=bill.actual_minutes,
             booked_minutes=bill.booked_minutes,
             overtime_minutes=bill.overtime_minutes,
+            unbilled_minutes=bill.unbilled_minutes,
         )
 
 

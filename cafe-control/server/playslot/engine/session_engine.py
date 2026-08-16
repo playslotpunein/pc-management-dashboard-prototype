@@ -249,6 +249,7 @@ class SessionEngine:
                     pricing.controller_surcharge_paise_per_hour
                 ),
                 extra_controllers=extra_controllers,
+                locks_at_grace_end=unit.is_enforced,
             )
 
             db.add(session)
@@ -524,6 +525,7 @@ class SessionEngine:
                 session.controller_surcharge_paise_per_hour
             ),
             extra_controllers=session.extra_controllers,
+            locks_at_grace_end=session.locks_at_grace_end,
         )
 
     def preview_bill(self, session_id: str):

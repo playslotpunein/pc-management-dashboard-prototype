@@ -753,6 +753,32 @@
     });
   }
 
+  /** Explains the gap between the clock and the bill, which is the question asked at the
+   *  counter. Two different gaps are possible and they mean opposite things: minutes the
+   *  customer played and owes for, or minutes the machine was locked and they do not. */
+  function billNote(bill) {
+    const over = bill.actual_minutes - bill.booked_minutes;
+
+    if (bill.unbilled_minutes) {
+      return `<p class="modal__note">Played ${bill.actual_minutes} min against
+        ${bill.booked_minutes} booked, but it locked when the grace ran out —
+        the ${bill.unbilled_minutes} min since are <b>not charged</b>.</p>`;
+    }
+
+    if (bill.overtime_minutes) {
+      return `<p class="modal__note">Played ${bill.actual_minutes} min against
+        ${bill.booked_minutes} booked — ${bill.overtime_minutes} min of that is
+        overtime. Nothing locks this unit, so the overrun is charged.</p>`;
+    }
+
+    if (over > 0) {
+      return `<p class="modal__note">${over} min past the booked time, inside the
+        grace period. Not charged.</p>`;
+    }
+
+    return "";
+  }
+
   function promptEnd(unit) {
     /* Itemised, not just a total. The manager is about to take money and has to be able
        to answer "why is it that much?" while the customer is standing there — most often
@@ -796,9 +822,7 @@
                 <tr><td>Total</td><td class="num">${esc(bill.total)}</td></tr>
               </tfoot>
             </table>
-            ${bill.overtime_minutes
-              ? `<p class="modal__note">Played ${bill.actual_minutes} min against ${bill.booked_minutes} booked — ${bill.overtime_minutes} min of that is overtime.</p>`
-              : ""}`;
+            ${billNote(bill)}`;
         })
         .catch(() => {
           const host = el("m-bill");

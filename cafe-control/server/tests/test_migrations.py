@@ -15,15 +15,13 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from playslot.db import create_all, create_db_engine, run_migrations
-from playslot.enums import EnforcementMode, UnitType
-from playslot.models import Session as SessionRow, Unit
+from playslot.enums import EnforcementMode, PaymentMethod, SessionSource, UnitType
+from playslot.models import Sale, Session as SessionRow, Unit
 
 
-def upgrade_to(url: str, revision: str) -> None:
-    """Migrate to one specific revision, to stage a database as it was at that point."""
+def _config(url: str):
     from pathlib import Path
 
-    from alembic import command
     from alembic.config import Config
 
     import playslot
@@ -33,7 +31,20 @@ def upgrade_to(url: str, revision: str) -> None:
     config.set_main_option("script_location", str(root / "migrations"))
     config.set_main_option("sqlalchemy.url", url)
 
-    command.upgrade(config, revision)
+    return config
+
+
+def upgrade_to(url: str, revision: str) -> None:
+    """Migrate to one specific revision, to stage a database as it was at that point."""
+    from alembic import command
+
+    command.upgrade(_config(url), revision)
+
+
+def downgrade_to(url: str, revision: str) -> None:
+    from alembic import command
+
+    command.downgrade(_config(url), revision)
 
 EXPECTED_TABLES = {
     "units",
@@ -146,20 +157,28 @@ class TestMigratingATableOtherTablesPointAt:
     units alone passes straight through it.
     """
 
-    def test_a_units_migration_survives_referencing_rows(self, tmp_path):
-        """Upgrade *across* a units rebuild with a session pointing at the unit.
+    def test_a_migration_survives_referencing_rows(self, tmp_path):
+        """Rebuild a referenced table while rows point at it.
 
-        Stopping at the revision before the rebuild is the whole point. Migrating a fresh
-        database never rebuilds anything — it creates the tables — so seeding one and
-        re-running head is a no-op that passes no matter what the pragma does.
+        Migrating a *fresh* database never rebuilds anything — it creates the tables — so
+        seeding one and re-running head is a no-op that passes whatever the pragma does.
+        The rebuild has to be exercised on a populated database.
+
+        Stepping back one revision and forward again does that, and does it without
+        naming a revision: pinning to a specific one means the models outgrow the staged
+        schema on the next column added, and the test fails for a reason that has nothing
+        to do with what it checks.
         """
         url = f"sqlite:///{tmp_path / 'venue.db'}"
 
-        # The last revision before units is rebuilt to drop relay_address.
-        upgrade_to(url, "2381490158aa")
+        run_migrations(url)
 
         engine = create_db_engine(url)
 
+        # A row in each table that points at another, so whichever table a migration
+        # rebuilds, something is referencing it: sessions -> units, sales -> sessions.
+        # With only one of them present the rebuild has nothing to trip over and the
+        # test passes whatever the foreign-key handling does.
         with Session(engine) as session:
             session.add(Unit(id="u1", venue_id="v1", name="PC 1", type=UnitType.PC))
             session.flush()
@@ -172,9 +191,23 @@ class TestMigratingATableOtherTablesPointAt:
                     duration_minutes=60,
                 )
             )
+            session.flush()
+            session.add(
+                Sale(
+                    id="sale1",
+                    venue_id="v1",
+                    session_id="s1",
+                    source=SessionSource.WALK_IN,
+                    amount_paise=12000,
+                    payment_method=PaymentMethod.CASH,
+                )
+            )
             session.commit()
 
         engine.dispose()
+
+        # Down and back up: both directions rebuild a table something else points at.
+        downgrade_to(url, "-1")
 
         landed = run_migrations(url)
 
@@ -184,6 +217,7 @@ class TestMigratingATableOtherTablesPointAt:
             # The rebuild must not have taken the referencing rows with it.
             assert list(raw.execute("SELECT id FROM sessions")) == [("s1",)]
             assert list(raw.execute("SELECT id FROM units")) == [("u1",)]
+            assert list(raw.execute("SELECT id FROM sales")) == [("sale1",)]
             assert list(raw.execute("PRAGMA foreign_key_check")) == []
 
             # And the new revision has to be *recorded*, not merely executed. If the

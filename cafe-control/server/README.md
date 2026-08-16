@@ -162,6 +162,20 @@ The total is the sum of the lines and nothing else, and the breakdown is **store
 sale** rather than recomputed. Pricing may have changed by the time anyone asks why the
 total was what it was.
 
+**Only a unit that cannot be locked accrues overtime.** A PC locks the instant its grace
+runs out, so the minute billable overtime would begin is the minute the machine goes
+dark. The session stays open until someone at the counter closes it — which on a busy
+evening might be two hours later — and every one of those minutes is time the customer was
+shut out of. Billing them charges for a screen the system itself switched off.
+
+So `Session.locks_at_grace_end`, snapshotted from the unit's enforcement at start, decides
+which of two things an overrun is:
+
+| | overrun is | billed |
+|---|---|---|
+| `software` (pc, sim) | a locked-out customer | no — reported as `unbilled_minutes` |
+| `manual` (ps5, pool, snooker) | someone still playing | yes |
+
 **A zero overtime rate does not mean free.** `overtime_rate_paise_per_minute` is a
 *penalty* rate; leave it at zero and those minutes are billed at the session's own hourly
 rate, prorated — time played is time charged. The only free time is `grace_minutes`,
