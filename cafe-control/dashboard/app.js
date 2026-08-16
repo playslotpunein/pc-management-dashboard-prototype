@@ -581,7 +581,7 @@
               <span class="price__rate">${rupees(current.hourly_rate_paise)}</span>
               <span class="price__per">/ hour</span>
             </div>
-            <div class="price__row"><span>Overtime</span><b>${current.overtime_rate_paise_per_minute ? rupees(current.overtime_rate_paise_per_minute) + " / min" : "not charged"}</b></div>
+            <div class="price__row"><span>Overtime</span><b>${current.overtime_rate_paise_per_minute ? rupees(current.overtime_rate_paise_per_minute) + " / min" : "at the hourly rate"}</b></div>
             ${type === "ps5" ? `<div class="price__row"><span>Extra controller</span><b>${current.controller_surcharge_paise_per_hour ? rupees(current.controller_surcharge_paise_per_hour) + " / hr" : "free"}</b></div>` : ""}
           ` : `
             <p class="card__sub" style="margin:10px 0">
@@ -617,8 +617,10 @@
     openModal(`${TYPE_LABEL[type]} rate`, `
       <label class="field"><span>Hourly rate (₹)</span>
         <input id="p-rate" type="number" min="0" step="10" value="${current ? current.hourly_rate_paise / 100 : 120}" /></label>
-      <label class="field"><span>Overtime (₹ per minute past grace)</span>
+      <label class="field"><span>Overtime penalty (₹ per minute past grace)</span>
         <input id="p-over" type="number" min="0" step="1" value="${current ? current.overtime_rate_paise_per_minute / 100 : 0}" /></label>
+      <p class="modal__note">Leave at 0 and overtime is billed at the hourly rate above —
+        time played is time charged. It is never free; the free window is the grace period.</p>
       ${type === "ps5" ? `
       <label class="field"><span>Extra controller (₹ per hour, each)</span>
         <input id="p-ctrl" type="number" min="0" step="10" value="${current ? current.controller_surcharge_paise_per_hour / 100 : 0}" /></label>` : ""}
@@ -752,8 +754,12 @@
   }
 
   function promptEnd(unit) {
+    /* Itemised, not just a total. The manager is about to take money and has to be able
+       to answer "why is it that much?" while the customer is standing there — most often
+       because the session ran over, which is the line a single figure hides. Fetched from
+       the server, so it is the same computation the sale will be written from. */
     openModal(`Close ${unit.name}`, `
-      <p class="modal__lead">Billing <b>${esc(unit.running_total || "—")}</b> for this session.</p>
+      <div id="m-bill"><p class="modal__lead">Working out the bill…</p></div>
       <label class="field"><span>Paid by</span>
         <select id="m-method">
           <option value="cash" selected>Cash</option>
@@ -769,6 +775,41 @@
         closeModal();
         endSession(unit, method);
       };
+
+      api(`/sessions/${unit.current_session_id}/bill`)
+        .then((bill) => {
+          const host = el("m-bill");
+
+          // The modal may already be closed, or reopened on another unit.
+          if (!host) return;
+
+          host.innerHTML = `
+            <table class="bill">
+              <tbody>
+                ${bill.lines.map((line) => `
+                  <tr${line.kind === "overtime" ? ' class="bill__over"' : ""}>
+                    <td>${esc(line.description)}</td>
+                    <td class="num">${esc(rupees(line.amount_paise))}</td>
+                  </tr>`).join("")}
+              </tbody>
+              <tfoot>
+                <tr><td>Total</td><td class="num">${esc(bill.total)}</td></tr>
+              </tfoot>
+            </table>
+            ${bill.overtime_minutes
+              ? `<p class="modal__note">Played ${bill.actual_minutes} min against ${bill.booked_minutes} booked — ${bill.overtime_minutes} min of that is overtime.</p>`
+              : ""}`;
+        })
+        .catch(() => {
+          const host = el("m-bill");
+
+          // Falls back to the figure already on the card rather than blocking the close;
+          // a manager mid-shift needs to be able to take the money regardless.
+          if (host) {
+            host.innerHTML =
+              `<p class="modal__lead">Billing <b>${esc(unit.running_total || "—")}</b> for this session.</p>`;
+          }
+        });
     });
   }
 

@@ -120,6 +120,64 @@ class TestSessionsOverHttp:
         assert bill["total"] == "₹120.00"
         assert client.get("/units").json()[0]["state"] == "active"
 
+    def test_ending_an_overrun_session_charges_for_the_overrun(
+        self, client, stocked, clock
+    ):
+        """The bug this covers: overtime silently costing nothing.
+
+        ``stocked`` prices the PC without an overtime penalty, which is what the pricing
+        form submits by default. That used to mean overtime was skipped entirely, so a
+        customer who booked an hour and played an hour and a half paid for the hour and
+        walked out — with the dashboard showing a tidy, wrong total at the counter.
+        """
+        session_id = client.post(
+            "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+        ).json()["id"]
+
+        clock.advance(minutes=95)
+
+        bill = client.get(f"/sessions/{session_id}/bill").json()
+
+        assert bill["overtime_minutes"] == 30
+
+        overtime = [line for line in bill["lines"] if line["kind"] == "overtime"]
+
+        assert overtime, "no overtime line on a session 30 minutes past grace"
+        assert overtime[0]["amount_paise"] == rupees(60)
+
+        sale = client.post(f"/sessions/{session_id}/end", json={}).json()
+
+        # ₹120 for the booked hour, plus 30 min at the same ₹120/hr.
+        assert sale["amount_paise"] == rupees(180)
+
+    def test_the_stored_sale_keeps_the_overtime_line(self, client, stocked, clock):
+        """So the manager can still answer "why was it that much?" a week later."""
+        session_id = client.post(
+            "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+        ).json()["id"]
+
+        clock.advance(minutes=95)
+        client.post(f"/sessions/{session_id}/end", json={})
+
+        sale = client.get("/sales").json()[0]
+        kinds = [line["kind"] for line in sale["lines"]]
+
+        assert "overtime" in kinds
+        assert sum(line["amount_paise"] for line in sale["lines"]) == sale["amount_paise"]
+
+    def test_the_preview_and_the_sale_agree(self, client, stocked, clock):
+        """They are two calls into the same computation and must not diverge."""
+        session_id = client.post(
+            "/sessions", json={"unit_id": stocked, "duration_minutes": 60}
+        ).json()["id"]
+
+        clock.advance(minutes=95)
+
+        preview = client.get(f"/sessions/{session_id}/bill").json()
+        sale = client.post(f"/sessions/{session_id}/end", json={}).json()
+
+        assert preview["total_paise"] == sale["amount_paise"]
+
     def test_extend_then_end_bills_both(self, client, stocked, clock):
         session_id = client.post(
             "/sessions", json={"unit_id": stocked, "duration_minutes": 60}

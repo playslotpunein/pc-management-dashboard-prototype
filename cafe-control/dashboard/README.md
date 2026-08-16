@@ -153,6 +153,26 @@ A change inserts a new row; it never overwrites. Two things follow, and both are
 A type with no rate says so plainly. Starting a session on it fails, which beats billing
 everyone zero and finding out at closing time.
 
+**The overtime field is a penalty rate, and leaving it at zero does not make overtime
+free** — those minutes bill at the hourly rate instead. The card says `at the hourly rate`
+rather than the old `not charged`, because "not charged" was both what the label said and
+what the server did: every overrun on the floor was given away, and the total at the
+counter looked correct while it happened. The only free window is the grace period.
+
+---
+
+## Closing a session
+
+**End & bill** shows the itemised bill before anything is taken, not just a total, with
+the overtime line called out. The manager is about to handle money and has to be able to
+answer "why is it that much?" with the customer standing there — and the answer is
+usually the overrun, which is exactly what a single figure hides.
+
+The breakdown comes from the server's `/sessions/{id}/bill`, so it is the same
+computation the sale is written from rather than a second one that could disagree. If
+that call fails the modal falls back to the running total from the card: mid-shift, being
+unable to take payment is worse than an unitemised one.
+
 ---
 
 ## Files

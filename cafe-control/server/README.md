@@ -155,12 +155,26 @@ The bill:
 base            booked minutes at the snapshot rate
 + extensions    each one its own line, at the rate captured with it
 + surcharge     extra PS5 controllers, prorated
-+ overtime      per minute, only once grace is consumed — grace itself is free
++ overtime      every minute past grace — grace itself is the free window
 ```
 
 The total is the sum of the lines and nothing else, and the breakdown is **stored on the
 sale** rather than recomputed. Pricing may have changed by the time anyone asks why the
 total was what it was.
+
+**A zero overtime rate does not mean free.** `overtime_rate_paise_per_minute` is a
+*penalty* rate; leave it at zero and those minutes are billed at the session's own hourly
+rate, prorated — time played is time charged. The only free time is `grace_minutes`,
+which is explicit and visible on the card.
+
+This is worth stating because the opposite used to be true, and it cost money quietly. A
+zero rate skipped the overtime line entirely, so a customer who booked an hour and played
+an hour and a half paid for the hour. The pricing form defaults that field to zero, which
+made it the ordinary setup rather than an unusual one: every overrun on the floor was
+given away, and the total at the counter looked perfectly tidy while it happened.
+
+Where the customer extended after a price rise, overtime follows the **extension's** rate
+rather than the original — that is the rate they last actually bought at.
 
 ---
 

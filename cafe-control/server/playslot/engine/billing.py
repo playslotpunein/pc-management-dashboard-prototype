@@ -123,7 +123,9 @@ def compute_bill(
         duration_minutes: Booked duration. Zero for an open-ended walk-in.
         extensions: Each is charged incrementally as its own line.
         grace_minutes: Free minutes after expiry before overtime begins.
-        overtime_rate_paise_per_minute: Charged per minute once grace is consumed.
+        overtime_rate_paise_per_minute: Penalty rate per minute once grace is consumed.
+            Zero does not mean free — it means overtime is charged at the session's own
+            hourly rate, prorated. Free time is what ``grace_minutes`` is for.
         controller_surcharge_paise_per_hour: PS5 only; per extra controller.
         extra_controllers: Controllers beyond the one included in the base rate.
     """
@@ -202,15 +204,41 @@ def compute_bill(
     if booked > 0:
         overtime = max(0, actual - booked - grace_minutes)
 
-    if overtime > 0 and overtime_rate_paise_per_minute > 0:
-        lines.append(
-            BillLine(
-                kind="overtime",
-                description=f"{overtime} min past the {grace_minutes} min grace",
-                minutes=overtime,
-                amount_paise=overtime_rate_paise_per_minute * overtime,
+    if overtime > 0:
+        if overtime_rate_paise_per_minute > 0:
+            lines.append(
+                BillLine(
+                    kind="overtime",
+                    description=f"{overtime} min past the {grace_minutes} min grace",
+                    minutes=overtime,
+                    amount_paise=overtime_rate_paise_per_minute * overtime,
+                )
             )
-        )
+        else:
+            # No penalty rate set, so overtime is charged at what the customer is
+            # already paying. It is emphatically not free.
+            #
+            # It used to be: with no overtime rate this line was skipped entirely, and a
+            # customer who booked an hour and played two paid for one. The pricing form
+            # defaults that field to zero, so this was not an unusual setup — it was the
+            # normal one, quietly giving away every overrun on the floor.
+            #
+            # The rate is the last one the customer actually bought at: if they extended
+            # after a price rise, the extension's rate is the one in force when the
+            # overtime began, and billing the older base rate would undercharge.
+            rate = extensions[-1].rate_snapshot_paise if extensions else rate_snapshot_paise
+
+            lines.append(
+                BillLine(
+                    kind="overtime",
+                    description=(
+                        f"{overtime} min past the {grace_minutes} min grace, "
+                        f"at the session rate"
+                    ),
+                    minutes=overtime,
+                    amount_paise=prorate_hourly(rate, overtime),
+                )
+            )
 
     return Bill(
         lines=tuple(lines),

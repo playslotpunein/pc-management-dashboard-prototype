@@ -224,7 +224,14 @@ class TestOvertimeAndGrace:
         assert bill.line("overtime").amount_paise == rupees(50)
         assert bill.total_paise == rupees(170)
 
-    def test_no_overtime_line_when_the_venue_does_not_charge_it(self):
+    def test_overtime_without_a_penalty_rate_bills_at_the_session_rate(self):
+        """Zero means "no *penalty*", not "free".
+
+        This used to skip the line entirely, so a customer who booked an hour and played
+        an hour and a half paid for the hour. The pricing form defaults that field to
+        zero, which made it the normal setup rather than an unusual one — the venue gave
+        away every overrun on the floor and nothing on screen said so.
+        """
         bill = compute_bill(
             rate_snapshot_paise=RATE_120,
             duration_minutes=60,
@@ -234,8 +241,76 @@ class TestOvertimeAndGrace:
         )
 
         assert bill.overtime_minutes == 25
+
+        # 25 min at ₹120/hr.
+        assert bill.line("overtime").amount_paise == rupees(50)
+        assert bill.total_paise == rupees(170)
+
+    def test_free_overtime_is_spelled_grace_not_a_zero_rate(self):
+        """The way to give time away is to lengthen the grace, which is explicit."""
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=90),
+            grace_minutes=30,
+            overtime_rate_paise_per_minute=0,
+        )
+
+        assert bill.overtime_minutes == 0
         assert bill.line("overtime") is None
         assert bill.total_paise == rupees(120)
+
+    def test_the_fallback_follows_the_latest_rate_the_customer_bought_at(self):
+        """They extended after a price rise, then ran over on top of that.
+
+        Billing the older base rate for those minutes would undercharge for time sold at
+        the newer one.
+        """
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=125),
+            extensions=[
+                Extension(
+                    minutes=30,
+                    granted_at=at(minutes=55),
+                    rate_snapshot_paise=rupees(180),
+                )
+            ],
+            overtime_rate_paise_per_minute=0,
+        )
+
+        # 60 booked + 30 extended + 5 grace = 95; 30 min over, at the ₹180 extension rate.
+        assert bill.overtime_minutes == 30
+        assert bill.line("overtime").amount_paise == rupees(90)
+
+    def test_an_explicit_penalty_rate_still_wins(self):
+        """The fallback must not quietly replace a rate the venue did set."""
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=60,
+            started_at=START,
+            ended_at=at(minutes=90),
+            overtime_rate_paise_per_minute=rupees(5),
+        )
+
+        assert bill.line("overtime").amount_paise == rupees(125)
+
+    def test_an_open_ended_session_never_accrues_overtime(self):
+        """It has no deadline to run past; every minute is already in the base line."""
+        bill = compute_bill(
+            rate_snapshot_paise=RATE_120,
+            duration_minutes=0,
+            started_at=START,
+            ended_at=at(minutes=200),
+            overtime_rate_paise_per_minute=0,
+        )
+
+        assert bill.overtime_minutes == 0
+        assert bill.line("overtime") is None
+        assert bill.total_paise == rupees(400)
 
 
 # ---------------------------------------------------------------------- surcharge

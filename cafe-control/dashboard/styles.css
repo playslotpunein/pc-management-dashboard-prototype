@@ -519,7 +519,16 @@ button { font-family: inherit; }
 .field input:focus, .field select:focus { outline: 2px solid var(--st-active); outline-offset: 1px; }
 
 .modal__lead { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
-.modal__note { margin: -6px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.modal__note { margin: -6px 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+
+/* The itemised bill in the close-session modal. */
+.bill { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+.bill td { padding: 7px 0; border-bottom: 1px solid var(--hairline-2); font-size: 13.5px; }
+.bill .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bill tfoot td { border-bottom: 0; border-top: 1px solid var(--hairline); font-weight: 700; font-size: 15px; padding-top: 10px; }
+
+/* The line a manager is most often asked about, and the one a bare total hides. */
+.bill__over td { color: var(--st-overtime); font-weight: 600; }
 .modal__actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
 
 .chip--on { border-color: var(--st, var(--ink)); color: var(--st, var(--ink)); background: var(--st-t, transparent); }
