@@ -46,7 +46,7 @@ environment variables. Override with `PLAYSLOT_`-prefixed variables or a `.env`:
 | `PLAYSLOT_BUSINESS_DAY_STARTS_HOUR` | `6` | An 11pm session belongs to that evening's shift report |
 
 ```bash
-./.venv/bin/python -m pytest        # 161 tests
+./.venv/bin/python -m pytest        # 209 tests
 ```
 
 ---
@@ -60,18 +60,20 @@ curl -X POST localhost:8000/pricing -H 'Content-Type: application/json' \
   -d '{"unit_type":"pc","hourly_rate_paise":12000,"overtime_rate_paise_per_minute":500}'
 
 curl -X POST localhost:8000/units -H 'Content-Type: application/json' \
-  -d '{"name":"Nova","type":"pc","zone":"Battle Zone"}'
+  -d '{"name":"PC 1","type":"pc","zone":"Battle Zone"}'
 
 # Types: pc · ps5 · sim · pool · snooker. A table is timed and billed like anything
 # else; what it cannot do is lock, so it is reminded instead. See "The state machine".
 curl -X POST localhost:8000/units -H 'Content-Type: application/json' \
-  -d '{"name":"Table 1","type":"snooker","zone":"Upstairs"}'
+  -d '{"name":"Snooker 1","type":"snooker","zone":"Upstairs"}'
 
 curl -X POST localhost:8000/sessions -H 'Content-Type: application/json' \
   -d '{"unit_id":"<id>","duration_minutes":60,"customer_ref":"Rohan M."}'
 
 curl localhost:8000/units        # live countdown + running total
-curl localhost:8000/sales/today  # closed + what is owed on the floor
+curl localhost:8000/sales/today    # closed + what is owed on the floor
+curl localhost:8000/sales/summary  # today, this week and this month in one response
+curl 'localhost:8000/sales?period=month'   # the individual sales behind one of them
 ```
 
 ---
@@ -162,6 +164,8 @@ The total is the sum of the lines and nothing else, and the breakdown is **store
 sale** rather than recomputed. Pricing may have changed by the time anyone asks why the
 total was what it was.
 
+### Overtime, and what is not charged
+
 **Only a unit that cannot be locked accrues overtime.** A PC locks the instant its grace
 runs out, so the minute billable overtime would begin is the minute the machine goes
 dark. The session stays open until someone at the counter closes it — which on a busy
@@ -189,6 +193,29 @@ given away, and the total at the counter looked perfectly tidy while it happened
 
 Where the customer extended after a price rise, overtime follows the **extension's** rate
 rather than the original — that is the rate they last actually bought at.
+
+### Reporting periods
+
+`/sales/summary` reports three windows at once — today, this week (from Monday) and this
+month (from the 1st).
+
+**All three roll over at 6am, not midnight**, because the business day does. At 2am on
+the 1st the venue is working the closing night of the month before, and its takings belong
+to the month that is ending; the same goes for a Sunday night that runs into Monday. Rolling
+the week or the month at midnight would file a venue's busiest hours under the wrong one.
+
+Two things that look wrong and are not:
+
+- **The week and the month do not nest.** A week that began in the previous month reaches
+  back further than the month does — Thursday 3 September 2026 belongs to a week that
+  started on Monday 31 August. Anything reading these windows has to span the *earliest*
+  of the three, not the month; `rollup_periods` does, and a test pins it.
+- **"Owed on the floor" is identical in all three.** It is a fact about right now rather
+  than an aggregate over a window. Scoping it per window would drop a session that started
+  yesterday out of "today" and make the floor look emptier than it is.
+
+The three are computed from one pass over the sales table rather than three queries: the
+panel polls every second, and the widest of them spans a month of rows.
 
 ---
 

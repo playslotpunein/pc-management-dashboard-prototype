@@ -47,6 +47,7 @@ from playslot.schemas import (
     PricingCreate,
     PricingRead,
     RollupRead,
+    SalesSummaryRead,
     SaleRead,
     SessionEnd,
     SessionExtend,
@@ -306,23 +307,7 @@ async def end_session(
 # ------------------------------------------------------------------------- sales
 
 
-@app.get("/sales/today", response_model=RollupRead, tags=["sales"])
-async def sales_today(engine: EngineDep, factory: FactoryDep) -> RollupRead:
-    """Closed sales plus what is still owed on the floor, by unit type."""
-    now = engine.now()
-    since = sales_engine.business_day_start(
-        now, day_starts_at=time(settings.business_day_starts_hour, 0)
-    )
-
-    with unit_of_work(factory) as db:
-        result = sales_engine.rollup(
-            db,
-            venue_id=settings.venue_id,
-            since=since,
-            until=now,
-            live_bill=engine.preview_bill,
-        )
-
+def _rollup_read(result: sales_engine.Rollup) -> RollupRead:
     return RollupRead(
         since=result.since,
         until=result.until,
@@ -330,6 +315,8 @@ async def sales_today(engine: EngineDep, factory: FactoryDep) -> RollupRead:
         live_paise=result.live_paise,
         total_paise=result.total_paise,
         total=format_rupees(result.total_paise),
+        closed=format_rupees(result.closed_paise),
+        live=format_rupees(result.live_paise),
         by_type=[
             TypeRollupRead(
                 unit_type=row.unit_type,
@@ -347,19 +334,63 @@ async def sales_today(engine: EngineDep, factory: FactoryDep) -> RollupRead:
     )
 
 
+@app.get("/sales/summary", response_model=SalesSummaryRead, tags=["sales"])
+async def sales_summary(engine: EngineDep, factory: FactoryDep) -> SalesSummaryRead:
+    """Today, this week and this month, each closed plus what is owed on the floor.
+
+    All three windows are anchored to the business day, so a Sunday night that runs past
+    midnight lands on the week it belongs to rather than opening the next one.
+    """
+    now = engine.now()
+
+    with unit_of_work(factory) as db:
+        periods = sales_engine.rollup_periods(
+            db,
+            venue_id=settings.venue_id,
+            now=now,
+            day_starts_at=time(settings.business_day_starts_hour, 0),
+            live_bill=engine.preview_bill,
+        )
+
+    return SalesSummaryRead(**{name: _rollup_read(r) for name, r in periods.items()})
+
+
+@app.get("/sales/today", response_model=RollupRead, tags=["sales"])
+async def sales_today(engine: EngineDep, factory: FactoryDep) -> RollupRead:
+    """Closed sales plus what is still owed on the floor, by unit type."""
+    now = engine.now()
+    since = sales_engine.business_day_start(
+        now, day_starts_at=time(settings.business_day_starts_hour, 0)
+    )
+
+    with unit_of_work(factory) as db:
+        result = sales_engine.rollup(
+            db,
+            venue_id=settings.venue_id,
+            since=since,
+            until=now,
+            live_bill=engine.preview_bill,
+        )
+
+    return _rollup_read(result)
+
+
 @app.get("/sales", response_model=list[SaleRead], tags=["sales"])
 async def list_sales(
     engine: EngineDep,
     factory: FactoryDep,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     all_days: Annotated[bool, Query()] = False,
+    period: Annotated[str, Query(pattern="^(today|week|month)$")] = "today",
 ) -> list[SaleRead]:
     """Individual sales, newest first.
 
     Scoped to the current business day by default, because the thing this list is for is
-    reconciling the till at the end of a shift. Pass ``all_days=true`` for history.
+    reconciling the till at the end of a shift. ``period`` widens it to the week or the
+    month so the list agrees with whichever total the manager is looking at; ``all_days``
+    drops the window entirely for history.
     """
-    since = sales_engine.business_day_start(
+    starts = sales_engine.period_starts(
         engine.now(), day_starts_at=time(settings.business_day_starts_hour, 0)
     )
 
@@ -367,7 +398,7 @@ async def list_sales(
         query = select(Sale).where(Sale.venue_id == settings.venue_id)
 
         if not all_days:
-            query = query.where(Sale.settled_at >= since)
+            query = query.where(Sale.settled_at >= starts[period])
 
         rows = db.scalars(query.order_by(Sale.settled_at.desc()).limit(limit)).all()
 

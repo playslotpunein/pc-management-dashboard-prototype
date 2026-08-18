@@ -521,6 +521,36 @@ button { font-family: inherit; }
 .modal__lead { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
 .modal__note { margin: -6px 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
 
+/* ---------- Reporting periods ----------
+   Today / this week / this month, side by side and selectable. They are buttons rather
+   than a segmented control because each carries its own figure: the comparison is the
+   point, and hiding two thirds of it behind a toggle would defeat that. */
+.periods {
+  display: grid; gap: 12px; margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.period {
+  appearance: none; text-align: left; font: inherit; cursor: pointer;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--hairline); border-radius: var(--radius);
+  padding: 14px 16px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.period:hover { border-color: color-mix(in srgb, var(--st-active) 45%, var(--hairline)); }
+.period:focus-visible { outline: 2px solid var(--st-active); outline-offset: 2px; }
+
+/* The selected one is marked by a full accent border and a rule down its left edge, not
+   by colour alone — the same reason every state badge carries an icon and a label. */
+.period--on {
+  border-color: var(--st-active);
+  box-shadow: inset 3px 0 0 var(--st-active), var(--shadow);
+}
+.period__label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.period--on .period__label { color: var(--st-active); }
+.period__value { font-size: 24px; font-weight: 680; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.period__sub { font-size: 11.5px; color: var(--muted); }
+
 /* The itemised bill in the close-session modal. */
 .bill { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
 .bill td { padding: 7px 0; border-bottom: 1px solid var(--hairline-2); font-size: 13.5px; }

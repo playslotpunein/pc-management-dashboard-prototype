@@ -197,6 +197,24 @@ class RollupRead(ApiModel):
     by_type: list[TypeRollupRead]
     by_payment_method: dict[str, int]
 
+    #: Preformatted for display, so the shift report can be read without the client
+    #: doing money arithmetic on it.
+    closed: str = ""
+    live: str = ""
+
+
+class SalesSummaryRead(ApiModel):
+    """All three windows in one response.
+
+    Sent together rather than as three endpoints because the panel polls every second and
+    needs all of them on screen at once; splitting it would triple the query load to show
+    the same numbers.
+    """
+
+    today: RollupRead
+    week: RollupRead
+    month: RollupRead
+
 
 # ----------------------------------------------------------------------- alerts
 

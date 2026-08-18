@@ -454,3 +454,94 @@ class TestPricingPanel:
         assert len(rows) == 3
         assert rows[0]["is_current"] is True
         assert rows[0]["hourly_rate_paise"] == rupees(200)
+
+
+class TestSalesPeriodsOverHttp:
+    """Today, this week and this month. The clock fixture sits on Thursday 6 August 2026,
+    whose week began Monday the 3rd and whose month began the 1st."""
+
+    @staticmethod
+    def settle(client, unit_id, when):
+        """Close a session and backdate its sale, standing in for an earlier shift.
+
+        Reaches for the app's own factory rather than the ``factory`` fixture: the client
+        builds a separate in-memory database, and writing to the other one leaves the
+        sale in place and the test quietly asserting nothing.
+        """
+        from playslot.db import unit_of_work
+        from playslot.models import Sale
+
+        session_id = client.post(
+            "/sessions", json={"unit_id": unit_id, "duration_minutes": 60}
+        ).json()["id"]
+
+        sale_id = client.post(f"/sessions/{session_id}/end", json={}).json()["id"]
+
+        with unit_of_work(main.factory_holder["factory"]) as db:
+            db.get(Sale, sale_id).settled_at = when
+
+        return sale_id
+
+    def test_the_three_windows_widen(self, client, stocked, clock):
+        from datetime import UTC, datetime
+
+        # One today, one on Tuesday (this week), one on the 2nd (this month only).
+        self.settle(client, stocked, datetime(2026, 8, 6, 15, tzinfo=UTC))
+        self.settle(client, stocked, datetime(2026, 8, 4, 15, tzinfo=UTC))
+        self.settle(client, stocked, datetime(2026, 8, 2, 15, tzinfo=UTC))
+
+        summary = client.get("/sales/summary").json()
+
+        assert summary["today"]["closed_paise"] == rupees(120)
+        assert summary["week"]["closed_paise"] == rupees(240)
+        assert summary["month"]["closed_paise"] == rupees(360)
+
+    def test_each_window_reports_where_it_starts(self, client, stocked):
+        summary = client.get("/sales/summary").json()
+
+        assert summary["today"]["since"].startswith("2026-08-06T06:00")
+        assert summary["week"]["since"].startswith("2026-08-03T06:00")
+        assert summary["month"]["since"].startswith("2026-08-01T06:00")
+
+    def test_owed_on_the_floor_is_the_same_in_all_three(self, client, stocked, clock):
+        """It is a fact about right now, not an aggregate over a window."""
+        client.post("/sessions", json={"unit_id": stocked, "duration_minutes": 60})
+        clock.advance(minutes=30)
+
+        summary = client.get("/sales/summary").json()
+        live = {summary[period]["live_paise"] for period in ("today", "week", "month")}
+
+        assert live == {rupees(120)}
+
+    def test_the_list_follows_the_period(self, client, stocked):
+        from datetime import UTC, datetime
+
+        self.settle(client, stocked, datetime(2026, 8, 6, 15, tzinfo=UTC))
+        self.settle(client, stocked, datetime(2026, 8, 4, 15, tzinfo=UTC))
+        self.settle(client, stocked, datetime(2026, 8, 2, 15, tzinfo=UTC))
+
+        assert len(client.get("/sales?period=today").json()) == 1
+        assert len(client.get("/sales?period=week").json()) == 2
+        assert len(client.get("/sales?period=month").json()) == 3
+
+    def test_the_list_defaults_to_today(self, client, stocked):
+        from datetime import UTC, datetime
+
+        self.settle(client, stocked, datetime(2026, 8, 4, 15, tzinfo=UTC))
+
+        assert client.get("/sales").json() == []
+
+    def test_an_unknown_period_is_rejected_rather_than_silently_widened(self, client):
+        """A typo must not quietly report the month as though it were today."""
+        assert client.get("/sales?period=year").status_code == 422
+
+    def test_summary_and_today_agree(self, client, stocked):
+        from datetime import UTC, datetime
+
+        self.settle(client, stocked, datetime(2026, 8, 6, 15, tzinfo=UTC))
+
+        summary = client.get("/sales/summary").json()["today"]
+        today = client.get("/sales/today").json()
+
+        assert summary["closed_paise"] == today["closed_paise"]
+        assert summary["total_paise"] == today["total_paise"]

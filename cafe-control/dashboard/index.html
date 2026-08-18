@@ -127,14 +127,19 @@
       <!-- Sales: the shift report. Closed takings, what is still owed on the floor, and
            every individual sale with the breakdown it was billed from. -->
       <div id="view-sales" class="view" hidden>
+        <!-- The three windows side by side, so the shift can be read against the week and
+             the month without switching. Each is also the selector for everything below:
+             picking one re-scopes the tables and the list to it. -->
+        <section class="periods" id="salesPeriods" role="tablist" aria-label="Reporting period"></section>
+
         <section class="stats stats--three" aria-label="Takings">
-          <article class="tile"><span class="tile__label">Taken today</span><span class="tile__value" id="sClosed">&mdash;</span><span class="tile__sub" id="sClosedSub">&mdash;</span></article>
+          <article class="tile"><span class="tile__label" id="sClosedLabel">Taken today</span><span class="tile__value" id="sClosed">&mdash;</span><span class="tile__sub" id="sClosedSub">&mdash;</span></article>
           <article class="tile"><span class="tile__label">Owed on the floor</span><span class="tile__value tile__value--live" id="sLive">&mdash;</span><span class="tile__sub" id="sLiveSub">&mdash;</span></article>
           <article class="tile tile--hero"><span class="tile__label">Expected total</span><span class="tile__value" id="sTotal">&mdash;</span><span class="tile__sub">taken plus outstanding</span></article>
         </section>
 
         <section class="panel">
-          <div class="panel__head"><h2>By unit type</h2></div>
+          <div class="panel__head"><h2>By unit type</h2><span class="panel__note" id="sTypeNote"></span></div>
           <div class="tablewrap"><table class="tbl" id="sByType"></table></div>
         </section>
 
@@ -148,7 +153,7 @@
 
         <section class="panel">
           <div class="panel__head">
-            <h2>Today&rsquo;s sales</h2>
+            <h2 id="sListTitle">Today&rsquo;s sales</h2>
             <span class="panel__note">Newest first. Click a row for the breakdown it was billed from.</span>
           </div>
           <div class="tablewrap"><table class="tbl tbl--rows" id="sList"></table></div>

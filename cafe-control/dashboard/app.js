@@ -69,6 +69,8 @@
     view: "floor",
     units: [],
     sales: null,
+    summary: null,
+    salesPeriod: "today",
     saleList: [],
     pricing: [],
     openSale: null,
@@ -115,15 +117,21 @@
       // Only the floor's data is polled every second. Sales and pricing change when a
       // manager acts, not on a timer, so they are fetched when their tab is opened —
       // re-querying every sale of the shift once a second would be pure waste.
-      const [units, sales] = await Promise.all([
+      const [units, summary] = await Promise.all([
         api("/units"),
-        api("/sales/today"),
+        api("/sales/summary"),
       ]);
 
       state.units = units;
-      state.sales = sales;
+      state.summary = summary;
 
-      if (state.view === "sales") state.saleList = await api("/sales");
+      // The floor tab's KPIs are about the shift in front of the manager, so they stay
+      // on today whatever the sales tab is showing.
+      state.sales = summary.today;
+
+      if (state.view === "sales") {
+        state.saleList = await api(`/sales?period=${encodeURIComponent(state.salesPeriod)}`);
+      }
       if (state.view === "pricing") state.pricing = await api("/pricing");
 
       if (state.linkDown) {
@@ -485,13 +493,66 @@
 
   const METHOD_LABEL = { cash: "Cash", upi: "UPI", card: "Card", paid_online: "Paid online" };
 
+  /** Time alone on a single day's list; date and time once the window is wider.
+   *
+   *  Without the date, a month of sales is ten rows reading "02:19 PM" that are actually
+   *  a fortnight apart, and the list stops being reconcilable against anything. */
+  const stampedTime = (iso, period) =>
+    period === "today"
+      ? timeOfDay(iso)
+      : `${shortDate(iso)}, ${timeOfDay(iso)}`;
+
   const timeOfDay = (iso) =>
     new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+  /** The three reporting windows, in the order they widen. */
+  const PERIODS = [
+    { key: "today", label: "Today", taken: "Taken today", list: "Today’s sales",
+      empty: "Nothing settled yet this shift." },
+    { key: "week", label: "This week", taken: "Taken this week", list: "This week’s sales",
+      empty: "Nothing settled yet this week." },
+    { key: "month", label: "This month", taken: "Taken this month", list: "This month’s sales",
+      empty: "Nothing settled yet this month." },
+  ];
+
+  /** "1 Aug" / "Mon 31 Aug" — enough to see which window a figure covers. */
+  const shortDate = (iso) =>
+    new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
+
+  function renderPeriodCards() {
+    const summary = state.summary;
+
+    if (!summary) return;
+
+    /* Only the *taken* figure varies between these. "Owed on the floor" is a fact about
+       right now rather than an aggregate, so it is identical in all three and would read
+       as a mistake repeated three times; it stays in the tile row below, once. */
+    el("salesPeriods").innerHTML = PERIODS.map(({ key, label }) => {
+      const rollup = summary[key];
+      const on = state.salesPeriod === key;
+
+      return `
+        <button class="period${on ? " period--on" : ""}" data-period="${key}"
+                role="tab" aria-selected="${on}">
+          <span class="period__label">${esc(label)}</span>
+          <span class="period__value">${esc(rollup.closed || rupees(rollup.closed_paise))}</span>
+          <span class="period__sub">${sumBy(rollup.by_type, "closed_sessions")} sessions
+            · since ${esc(shortDate(rollup.since))}</span>
+        </button>`;
+    }).join("");
+  }
+
   function renderSales() {
-    const sales = state.sales;
+    const period = PERIODS.find((p) => p.key === state.salesPeriod) || PERIODS[0];
+    const sales = state.summary && state.summary[period.key];
 
     if (!sales) return;
+
+    renderPeriodCards();
+
+    el("sClosedLabel").textContent = period.taken;
+    el("sListTitle").textContent = period.list;
+    el("sTypeNote").textContent = `Since ${shortDate(sales.since)}`;
 
     el("sClosed").textContent = rupees(sales.closed_paise);
     el("sClosedSub").textContent = `${sumBy(sales.by_type, "closed_sessions")} sessions closed`;
@@ -524,21 +585,22 @@
          <tbody>${methods.map(([m, amount]) =>
             `<tr><td>${esc(METHOD_LABEL[m] || m)}</td><td class="num strong">${rupees(amount)}</td></tr>`
           ).join("")}</tbody>`
-      : `<tbody><tr><td class="panel__note">Nothing settled yet this shift.</td></tr></tbody>`;
+      : `<tbody><tr><td class="panel__note">${esc(period.empty)}</td></tr></tbody>`;
 
     // The individual sales. Clicking one reveals the stored breakdown it was billed
     // from — not a recomputation, the very lines written when the session closed.
     const rows = state.saleList;
 
     el("sEmpty").hidden = rows.length > 0;
+    el("sEmpty").textContent = period.empty;
     el("sList").innerHTML = rows.length ? `
       <thead><tr>
-        <th>Time</th><th>Unit</th><th>Customer</th><th>Method</th><th class="num">Amount</th>
+        <th>${period.key === "today" ? "Time" : "When"}</th><th>Unit</th><th>Customer</th><th>Method</th><th class="num">Amount</th>
       </tr></thead>
       <tbody>
         ${rows.map((sale) => `
           <tr class="sale" data-sale="${esc(sale.id)}">
-            <td>${esc(timeOfDay(sale.settled_at))}</td>
+            <td>${esc(stampedTime(sale.settled_at, period.key))}</td>
             <td>${esc(sale.unit_name || "—")}</td>
             <td>${esc(sale.customer_ref || "—")}</td>
             <td><span class="pill">${esc(METHOD_LABEL[sale.payment_method] || sale.payment_method)}</span></td>
@@ -1026,6 +1088,18 @@
     const price = event.target.closest("[data-price]");
     if (price) { promptPrice(price.dataset.price); return; }
 
+    const period = event.target.closest("[data-period]");
+    if (period) {
+      state.salesPeriod = period.dataset.period;
+      state.openSale = null;
+      savePrefs();
+      render();
+      // The list is scoped server-side, so widening the window needs a fresh fetch
+      // rather than a re-render of rows that were never sent.
+      refresh().then(render);
+      return;
+    }
+
     const saleRow = event.target.closest("[data-sale]");
     if (saleRow) {
       // Toggle the stored breakdown for this sale.
@@ -1070,6 +1144,7 @@
           // Kept because someone running the tables upstairs sets it once a shift and
           // should not have to set it again after every refresh.
           filterType: state.filterType,
+          salesPeriod: state.salesPeriod,
         }));
     } catch { /* private browsing; prefs simply do not persist */ }
   }
@@ -1081,6 +1156,10 @@
       if (saved.sort) { state.sort = saved.sort; el("sortBy").value = saved.sort; }
       // renderTypes() drops it back to "all" if the venue no longer has that kind.
       if (saved.filterType) state.filterType = saved.filterType;
+
+      if (PERIODS.some((p) => p.key === saved.salesPeriod)) {
+        state.salesPeriod = saved.salesPeriod;
+      }
     } catch { /* ignore */ }
   }
 

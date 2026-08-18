@@ -128,6 +128,28 @@ shut, crashed or disconnected changes nothing about sessions, billing or locks.
 
 The shift report. Takings, what is still owed on the floor, and every individual sale.
 
+### Today, this week, this month
+
+Three cards across the top, each showing what that window has taken. They are cards rather
+than a dropdown because the comparison is the point — a Tuesday that looks quiet reads
+differently against the week — and a toggle would hide two thirds of it.
+
+Each is also the selector: picking one re-scopes everything below to that window. The
+tiles, the by-type and by-payment tables, and the list of sales all follow, and the choice
+survives a reload.
+
+Two deliberate details:
+
+- **"Owed on the floor" does not change between them.** It is what the floor owes right
+  now, not an aggregate over a window, so it would be the same figure repeated three times
+  and read as a bug. It stays in the tile row, once. Only the *taken* figure varies.
+- **The list shows the date once the window is wider than a day.** Without it a month of
+  sales is a column of rows reading `02:19 PM` that are a fortnight apart.
+
+Windows roll over at 6am, not midnight — a Sunday night that runs past twelve belongs to
+the week that is ending, not the one starting. The server decides all of this; the
+dashboard renders what it is handed.
+
 Closed and running stay in **separate columns** rather than being added together: one is
 money in the till, the other is money still on the floor, and merging them hides the
 difference the manager is actually reconciling against.
