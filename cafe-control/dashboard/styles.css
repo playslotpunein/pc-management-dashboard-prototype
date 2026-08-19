@@ -696,9 +696,13 @@ button { font-family: inherit; }
 /* 240px against 300px is a fifth more per row: twenty units land in four rows on a
    counter monitor instead of five, which is the difference between a glance and a
    scroll. */
+/* 230px, tuned against the rail rather than picked. Dropping it to ~220 does fit five
+   columns instead of four — and fits *fewer* cards on screen, because the narrower cards
+   wrap more, grow taller, and cost a whole row. Measured: 4x290px gives 8 cards above the
+   fold, 5x232px gives 5. */
 [data-layout="dense"] .grid {
   gap: 10px;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
 }
 
 /* Flat by default. Uniform elevation on every surface is uniform emphasis, which is
@@ -839,16 +843,26 @@ button { font-family: inherit; }
   background-attachment: fixed;
 }
 
-/* ---- The rail ---- */
-[data-layout="suite"] .rail {
-  position: fixed; inset: 0 auto 0 0; width: 232px; z-index: 30;
+/* ---- The rail ----
+   The shell for every layout, not just the suite one. Navigation belongs somewhere
+   persistent and out of the way of the work; the topbar tabs it replaces were fighting
+   the search field and the actions for the same row. Colour comes from theme tokens so
+   it holds in light and dark — the suite layout restyles it further, it does not own it.
+
+   It costs width rather than height: 232px, against a content column that was capped at
+   1360px and centred anyway. On a wide counter monitor that is close to free; below
+   about 1100px it folds into a horizontal strip — see the breakpoint at the bottom. */
+.rail {
+  position: fixed; inset: 0 auto 0 0; width: 208px; z-index: 30;
   display: flex; flex-direction: column; gap: 4px;
   padding: 22px 14px 16px;
-  background: #0b0b13;
+  background: var(--surface);
   border-right: 1px solid var(--hairline);
 }
-:root:not([data-layout="suite"]) .rail { display: none; }
-[data-layout="suite"] .app { margin-left: 232px; max-width: none; padding: 0 30px 56px; }
+.app { margin-left: 208px; max-width: 1400px; padding: 0 22px 48px; }
+
+[data-layout="suite"] .rail { background: #0b0b13; }
+[data-layout="suite"] .app { max-width: none; padding: 0 30px 56px; }
 
 .rail__brand { padding: 0 8px 16px; }
 .rail__eyebrow,
@@ -862,13 +876,13 @@ button { font-family: inherit; }
 .venue {
   display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
   padding: 10px 11px; border-radius: 11px;
-  background: linear-gradient(180deg, rgba(124,116,255,.16), rgba(124,116,255,.05));
-  border: 1px solid rgba(124,116,255,.26);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .venue__mark {
   width: 30px; height: 30px; border-radius: 8px; flex: none;
   display: grid; place-items: center;
-  background: rgba(124,116,255,.2); color: #b9b3ff;
+  background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent);
 }
 .venue__text { display: flex; flex-direction: column; min-width: 0; }
 .venue__text b { font-size: 12.5px; font-weight: 620; }
@@ -884,18 +898,18 @@ button { font-family: inherit; }
   font: inherit; font-size: 13.5px; font-weight: 520; color: var(--ink-2);
   padding: 9px 10px; border-radius: 9px; text-align: left;
 }
-.railitem:hover { background: rgba(255,255,255,.045); color: var(--ink); }
+.railitem:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
 .railitem svg { color: var(--muted); flex: none; }
 .railitem--on {
-  background: linear-gradient(180deg, rgba(124,116,255,.2), rgba(124,116,255,.08));
-  color: #fff; font-weight: 600;
-  box-shadow: inset 0 0 0 1px rgba(124,116,255,.3);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--ink); font-weight: 620;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
-.railitem--on svg { color: #a79fff; }
+.railitem--on svg { color: var(--accent); }
 .rail__badge {
   margin-left: auto; min-width: 19px; padding: 1px 6px; border-radius: 999px;
   font-size: 10.5px; font-weight: 700; text-align: center;
-  background: var(--st-locked); color: #1a0410;
+  background: var(--st-locked); color: var(--surface);
 }
 
 .rail__foot {
@@ -909,9 +923,11 @@ button { font-family: inherit; }
 }
 .rail__stamp { font-size: 10.5px; color: var(--muted); }
 
-/* The topbar keeps the search and the actions; the rail has taken the navigation. */
-[data-layout="suite"] .brand,
-[data-layout="suite"] .tabs,
+/* The topbar keeps the search and the actions; the rail has taken the navigation, and
+   the crumb has taken the title. Leaving the tabs in place would be two navigations for
+   three views. */
+.brand, .tabs { display: none; }
+.crumb { display: block; }
 [data-layout="suite"] .topline,
 [data-layout="suite"] .foot { display: none; }
 [data-layout="suite"] .topbar {
@@ -1062,17 +1078,20 @@ button { font-family: inherit; }
 [data-layout="suite"] .modal__panel { background: var(--surface); }
 [data-layout="suite"] .alert { background: var(--surface); }
 
-@media (max-width: 900px) {
-  [data-layout="suite"] .rail { position: static; width: auto; flex-direction: row; align-items: center; }
-  [data-layout="suite"] .rail__brand, [data-layout="suite"] .rail__foot,
-  [data-layout="suite"] .rail__section, [data-layout="suite"] .venue { display: none; }
-  [data-layout="suite"] .rail__nav { flex-direction: row; }
-  [data-layout="suite"] .app { margin-left: 0; }
+/* Below this the rail costs more width than it earns, so it folds to a strip across the
+   top and gives the column back. */
+@media (max-width: 1100px) {
+  .rail {
+    position: static; width: auto; flex-direction: row; align-items: center;
+    gap: 8px; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--hairline);
+  }
+  .rail__brand, .rail__foot, .rail__section, .venue { display: none; }
+  .rail__nav { flex-direction: row; }
+  .app { margin-left: 0; }
 }
 
 /* ---- Breadcrumb and page title ---- */
-:root:not([data-layout="suite"]) .crumb { display: none; }
-[data-layout="suite"] .crumb { flex: none; }
+.crumb { flex: none; }
 .crumb__path { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
 .crumb__path b { color: var(--ink-2); font-weight: 600; }
 .crumb__title { font-size: 19px; font-weight: 600; letter-spacing: -.015em; }
