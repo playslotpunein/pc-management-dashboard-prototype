@@ -27,13 +27,18 @@ import pytest
 
 STYLES = Path(__file__).resolve().parents[2] / "dashboard" / "styles.css"
 
-#: A rule that sets custom properties on the root itself, in either dark form. Descendant
-#: rules like `:root[data-theme="dark"] .badge` are excluded — they style one component,
-#: not the palette.
-ROOT_DARK_TOGGLE = re.compile(r"(?:^|\})\s*:?root?\[data-theme=\"dark\"\]\s*\{|(?:^|\})\s*\[data-theme=\"dark\"\]\s*\{")
-ROOT_DARK_MEDIA = re.compile(r":root:not\(\[data-theme=\"light\"\]\)\s*\{")
+#: A selector that sets custom properties on the root itself, in either dark form.
+#: Descendant selectors like `:root[data-theme="dark"] .badge` are excluded — they style
+#: one component, not the palette.
+ROOT_DARK_TOGGLE = re.compile(r'^:?root?\[data-theme="dark"\]$|^\[data-theme="dark"\]$')
+ROOT_DARK_MEDIA = re.compile(r'^:root:not\(\[data-theme="light"\]\)$')
 
 DECLARATION = re.compile(r"(--[\w-]+)\s*:\s*([^;]+);")
+
+#: An innermost rule: a prelude, then a body containing no further braces. Excluding
+#: braces from the body is what makes this nesting-proof — an `@media` wrapper's body
+#: holds another rule and so never matches, while the rule inside it does.
+RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 
 SHORT_HEX = re.compile(r"^#([0-9a-f])([0-9a-f])([0-9a-f])$", re.I)
 
@@ -52,12 +57,24 @@ def normalise(value: str) -> str:
 
 
 def blocks_after(css: str, pattern: re.Pattern[str]) -> list[str]:
-    """Bodies of every rule whose opening matches ``pattern``."""
+    """Bodies of every rule one of whose selectors matches ``pattern``.
+
+    Splits the prelude on commas rather than matching the whole thing, because a rule may
+    legitimately serve several selectors at once — `:root[data-theme="dark"],
+    [data-layout="suite"] { … }` declares the dark palette and the suite one together.
+    Matching only the single-selector form made that rule invisible here and reported the
+    two dark blocks as having drifted when they had not.
+    """
     bodies = []
 
-    for match in pattern.finditer(css):
-        end = css.index("}", match.end())
-        bodies.append(css[match.end() : end])
+    for prelude, body in RULE.findall(css):
+        # Comments and any earlier rule's tail sit above the selector; the selector is
+        # whatever survives on the last line.
+        lines = re.sub(r"/\*.*?\*/", "", prelude, flags=re.S).strip().splitlines()
+        selectors = (lines[-1] if lines else "").split(",")
+
+        if any(pattern.match(part.strip()) for part in selectors):
+            bodies.append(body)
 
     return bodies
 
@@ -113,7 +130,7 @@ class TestTheTwoDarkDeclarationsAgree:
 class TestDarkIsItsOwnPalette:
     def test_every_state_colour_is_restepped_for_the_dark_surface(self, css, toggle):
         """Dark is selected, not an automatic flip; reusing a light step is the bug."""
-        light = properties(blocks_after(css, re.compile(r"(?:^|\})\s*:root\s*\{")))
+        light = properties(blocks_after(css, re.compile(r"^:root$")))
 
         states = {name: value for name, value in toggle.items() if name.startswith("--st-")}
 
