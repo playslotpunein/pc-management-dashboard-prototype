@@ -784,3 +784,303 @@ button { font-family: inherit; }
 [data-layout="dense"] .alerts { max-width: 290px; gap: 6px; }
 [data-layout="dense"] .alerts .alert { font-size: 12.5px; padding: 8px 11px; }
 [data-layout="dense"] .alerts > *:nth-last-child(n+4) { display: none; }
+
+/* ============================================================================
+   Suite layout  ·  [data-layout="suite"]
+   ----------------------------------------------------------------------------
+   A presentation surface rather than a counter one: the venue seen from the
+   office, not the floor seen mid-service. Dark navy ground, a left rail carrying
+   identity and navigation, a titled hero, and a strip that answers "how full,
+   and what is it worth" before any card appears.
+
+   The palette is its own — this layout does not inherit the light/dark theme,
+   because half its effect is the specific dark it sits on. The status hues stay
+   the measured ones; only the surfaces beneath them change.
+
+   Deliberately absent: the delta pills ("▲ 21.4%") that this style usually
+   carries. The server has no period-over-period figures to put in them, and the
+   dashboard is not allowed to compute money or time itself. Inventing them would
+   be the same fabrication the six tiles were guilty of. They can be real as soon
+   as the rollup returns a prior-period comparison.
+   ========================================================================== */
+
+[data-layout="suite"] {
+  --plane:      #08080f;
+  --surface:    #101018;
+  --surface-2:  #15151f;
+  --ink:        #f4f4f7;
+  --ink-2:      #a9a9bd;
+  --muted:      #6f6f87;
+  --hairline:   rgba(255,255,255,.075);
+  --hairline-2: rgba(255,255,255,.045);
+  --accent:     #7c74ff;
+  --ring:       rgba(124,116,255,.45);
+  --shadow:     none;
+  --shadow-lg:  0 24px 70px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+
+/* The status hues, restepped for this darker ground. Same measured separation. */
+[data-layout="suite"] {
+  --st-available:   #22c98a;
+  --st-scheduled:   #b57bff;
+  --st-active:      #6f8bff;
+  --st-warning:     #e0a020;
+  --st-overtime:    #f0743a;
+  --st-locked:      #f2547d;
+  --st-maintenance: #6b7794;
+}
+
+[data-layout="suite"] body {
+  background:
+    radial-gradient(900px 520px at 22% -8%, rgba(124,116,255,.13), transparent 62%),
+    radial-gradient(700px 420px at 96% 4%, rgba(34,201,138,.07), transparent 60%),
+    var(--plane);
+  background-attachment: fixed;
+}
+
+/* ---- The rail ---- */
+[data-layout="suite"] .rail {
+  position: fixed; inset: 0 auto 0 0; width: 232px; z-index: 30;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 22px 14px 16px;
+  background: #0b0b13;
+  border-right: 1px solid var(--hairline);
+}
+:root:not([data-layout="suite"]) .rail { display: none; }
+[data-layout="suite"] .app { margin-left: 232px; max-width: none; padding: 0 30px 56px; }
+
+.rail__brand { padding: 0 8px 16px; }
+.rail__eyebrow,
+.rail__section {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--muted);
+}
+.rail__name { font-size: 23px; font-weight: 640; letter-spacing: -.02em; margin: 5px 0 2px; }
+.rail__version { font-size: 11px; color: var(--muted); }
+
+.venue {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+  padding: 10px 11px; border-radius: 11px;
+  background: linear-gradient(180deg, rgba(124,116,255,.16), rgba(124,116,255,.05));
+  border: 1px solid rgba(124,116,255,.26);
+}
+.venue__mark {
+  width: 30px; height: 30px; border-radius: 8px; flex: none;
+  display: grid; place-items: center;
+  background: rgba(124,116,255,.2); color: #b9b3ff;
+}
+.venue__text { display: flex; flex-direction: column; min-width: 0; }
+.venue__text b { font-size: 12.5px; font-weight: 620; }
+.venue__text span {
+  font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+}
+
+.rail__nav { display: flex; flex-direction: column; gap: 2px; }
+.rail__section { padding: 16px 8px 7px; }
+.railitem {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 520; color: var(--ink-2);
+  padding: 9px 10px; border-radius: 9px; text-align: left;
+}
+.railitem:hover { background: rgba(255,255,255,.045); color: var(--ink); }
+.railitem svg { color: var(--muted); flex: none; }
+.railitem--on {
+  background: linear-gradient(180deg, rgba(124,116,255,.2), rgba(124,116,255,.08));
+  color: #fff; font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(124,116,255,.3);
+}
+.railitem--on svg { color: #a79fff; }
+.rail__badge {
+  margin-left: auto; min-width: 19px; padding: 1px 6px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; text-align: center;
+  background: var(--st-locked); color: #1a0410;
+}
+
+.rail__foot {
+  margin-top: auto; padding: 12px 10px 0; border-top: 1px solid var(--hairline-2);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.rail__status { font-size: 11.5px; font-weight: 600; color: var(--st-available); }
+.rail__status::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 999px;
+  background: currentColor; margin-right: 7px; vertical-align: middle;
+}
+.rail__stamp { font-size: 10.5px; color: var(--muted); }
+
+/* The topbar keeps the search and the actions; the rail has taken the navigation. */
+[data-layout="suite"] .brand,
+[data-layout="suite"] .tabs,
+[data-layout="suite"] .topline,
+[data-layout="suite"] .foot { display: none; }
+[data-layout="suite"] .topbar {
+  background: transparent; backdrop-filter: none;
+  border-bottom: 1px solid var(--hairline-2); margin-bottom: 26px;
+}
+[data-layout="suite"] .topbar__tools { margin-left: 0; width: 100%; }
+[data-layout="suite"] .search { flex: 1; background: var(--surface); }
+[data-layout="suite"] .btn { background: var(--surface); }
+[data-layout="suite"] .btn--primary {
+  background: linear-gradient(180deg, #8b83ff, #6a61f0); border-color: transparent;
+}
+
+/* ---- Hero ---- */
+:root:not([data-layout="suite"]) .hero { display: none; }
+[data-layout="suite"] .hero {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap; margin-bottom: 20px;
+}
+.hero__meta {
+  font-size: 10px; font-weight: 700; letter-spacing: .18em; color: var(--muted);
+  margin-bottom: 9px;
+}
+
+/* Two tone, because the second word is the one that changes with the venue's night and
+   the first is just the noun. */
+.hero__title { font-size: 36px; font-weight: 560; letter-spacing: -.025em; line-height: 1.1; }
+.hero__title span {
+  background: linear-gradient(92deg, #8f86ff, #63d8b0);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero__sub { font-size: 13.5px; color: var(--ink-2); margin-top: 7px; }
+.livepill {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 560; color: var(--ink-2);
+  padding: 7px 13px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--hairline);
+}
+.livepill i {
+  width: 6px; height: 6px; border-radius: 999px; background: var(--st-available);
+  box-shadow: 0 0 0 3px rgba(34,201,138,.18);
+}
+
+/* ---- The occupancy strip ---- */
+:root:not([data-layout="suite"]) .dist__lead,
+:root:not([data-layout="suite"]) .dist__figures { display: none; }
+:root:not([data-layout="suite"]) .dist__main { display: contents; }
+
+[data-layout="suite"] .dist {
+  display: flex; align-items: center; gap: 26px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 14px; padding: 16px 22px; margin-bottom: 16px;
+}
+[data-layout="suite"] .dist__main { flex: 1; min-width: 0; }
+[data-layout="suite"] .dist__head h2 { display: none; }
+[data-layout="suite"] .dist__bar { height: 9px; border-radius: 999px; }
+[data-layout="suite"] .legend { gap: 14px; }
+[data-layout="suite"] .legend__item { font-size: 11.5px; }
+
+.dist__lead { display: flex; flex-direction: column; flex: none; }
+.dist__lead b {
+  font-size: 30px; font-weight: 600; letter-spacing: -.03em; color: var(--st-active);
+  font-variant-numeric: tabular-nums; line-height: 1.05;
+}
+.dist__lead span {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--muted);
+}
+/* Kept in the markup, drawn nowhere: owed and taken are tiles now, and printing them
+   here as well would be the third copy of the same two numbers. The strip is the natural
+   home for them again if the tiles ever carry something else. */
+.dist__figures { display: none; gap: 26px; flex: none; }
+.sfig { display: flex; flex-direction: column; text-align: right; }
+.sfig b { font-size: 18px; font-weight: 620; font-variant-numeric: tabular-nums; }
+.sfig span {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--muted);
+}
+
+/* ---- KPI cards ---- */
+/* Five across, one row. "Total units" goes: the rail already reads "20 units · 5 zones"
+   directly above, and six cards wrapped a lone orphan onto a second row. */
+/* Five across, one row, and each one a fact nothing else on the page repeats.
+   Occupancy goes: the strip below *is* the occupancy display, and carrying both was the
+   very duplication that made the old tile row worthless. "Total units" goes too — the
+   rail reads "20 units · 5 zones" a few inches to the left. */
+/* Scoped off .stats--three, which is the Sales view's three-tile row. Unscoped, these
+   hid its "Owed on the floor" and "Expected total" and left a single orphan tile — the
+   floor's summary and the shift report share a class and do not share a shape. */
+[data-layout="suite"] .stats:not(.stats--three) { grid-template-columns: repeat(5, 1fr); gap: 12px; }
+[data-layout="suite"] .stats:not(.stats--three) .tile--hero,
+[data-layout="suite"] .stats:not(.stats--three) .tile:nth-child(2) { display: none; }
+
+/* The one tile with an action attached, so it is the one that gets the colour. */
+.tile--attention { display: none; }
+[data-layout="suite"] .tile--attention { display: flex; }
+[data-layout="suite"] .tile--attention .tile__value { color: var(--st-locked); }
+[data-layout="suite"] .tile--attention .tile__icon {
+  background: rgba(242,84,125,.14); color: var(--st-locked);
+  border-color: rgba(242,84,125,.28);
+}
+[data-layout="suite"] .tile {
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 14px; padding: 16px 17px; gap: 0;
+}
+[data-layout="suite"] .tile--hero { background: var(--surface); }
+[data-layout="suite"] .tile--hero .tile__value { font-size: 34px; }
+.tile__icon {
+  width: 32px; height: 32px; border-radius: 9px; margin-bottom: 14px;
+  display: none; place-items: center;
+  background: rgba(255,255,255,.055); color: var(--ink-2);
+  border: 1px solid var(--hairline-2);
+}
+[data-layout="suite"] .tile__icon { display: grid; }
+[data-layout="suite"] .tile__value {
+  font-size: 34px; font-weight: 560; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+}
+[data-layout="suite"] .tile__label {
+  order: 3; font-size: 9.5px; font-weight: 700; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--ink-2); margin-top: 7px;
+}
+[data-layout="suite"] .tile__sub { order: 4; font-size: 11.5px; margin-top: 5px; }
+[data-layout="suite"] .meter { display: none; }
+
+/* ---- Panels, cards, tables ---- */
+[data-layout="suite"] .panel,
+[data-layout="suite"] .card,
+[data-layout="suite"] .price {
+  background: var(--surface); border-color: var(--hairline); box-shadow: none;
+}
+[data-layout="suite"] .card { border-left-width: 3px; border-radius: 13px; }
+[data-layout="suite"] .card--urgent { box-shadow: inset 0 0 0 1px var(--st); }
+[data-layout="suite"] .grid { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); }
+[data-layout="suite"] .countdown { font-size: 27px; font-weight: 560; }
+[data-layout="suite"] .card__title { font-size: 14.5px; }
+
+/* Not the selected one. That chip is deliberately inverted — dark ground, surface-coloured
+   text — and overriding only its background left its text the same colour as it, so "All 20"
+   rendered as an empty pill. */
+[data-layout="suite"] .chip:not([aria-selected="true"]) {
+  background: var(--surface); border-color: var(--hairline);
+}
+[data-layout="suite"] .tbl th {
+  font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+}
+[data-layout="suite"] .period { background: var(--surface); border-color: var(--hairline); box-shadow: none; }
+[data-layout="suite"] .period--on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+[data-layout="suite"] .modal__panel { background: var(--surface); }
+[data-layout="suite"] .alert { background: var(--surface); }
+
+@media (max-width: 900px) {
+  [data-layout="suite"] .rail { position: static; width: auto; flex-direction: row; align-items: center; }
+  [data-layout="suite"] .rail__brand, [data-layout="suite"] .rail__foot,
+  [data-layout="suite"] .rail__section, [data-layout="suite"] .venue { display: none; }
+  [data-layout="suite"] .rail__nav { flex-direction: row; }
+  [data-layout="suite"] .app { margin-left: 0; }
+}
+
+/* ---- Breadcrumb and page title ---- */
+:root:not([data-layout="suite"]) .crumb { display: none; }
+[data-layout="suite"] .crumb { flex: none; }
+.crumb__path { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
+.crumb__path b { color: var(--ink-2); font-weight: 600; }
+.crumb__title { font-size: 19px; font-weight: 600; letter-spacing: -.015em; }
+[data-layout="suite"] .topbar__tools { margin-left: auto; width: auto; }
+[data-layout="suite"] .search { flex: 0 1 340px; }
+
+/* Same treatment as the dense layout: narrower, and capped at three. Five stacked
+   alerts covered a third of the floor. Still an overlay — see the note there. */
+[data-layout="suite"] .alerts { max-width: 300px; gap: 6px; }
+[data-layout="suite"] .alerts .alert { font-size: 12.5px; padding: 8px 11px; }
+[data-layout="suite"] .alerts > *:nth-last-child(n+4) { display: none; }

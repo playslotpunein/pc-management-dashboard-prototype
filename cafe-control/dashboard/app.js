@@ -280,6 +280,21 @@
       ? "1 unit needs you"
       : `${urgent.length} units need you`;
 
+    // Suite layout: the rail badge and the occupancy strip. Same figures again — every
+    // layout reads them from here, so none of them can drift from another.
+    el("railBadge").hidden = urgent.length === 0;
+    el("railBadge").textContent = urgent.length;
+    el("railVenueMeta").textContent =
+      `${units.length} units · ${new Set(units.map((u) => u.zone || "—")).size} zones`;
+
+    el("stripPct").textContent = `${pct}%`;
+    el("stripFree").textContent = available.length;
+    el("kpiAttention").textContent = urgent.length;
+
+    el("heroMeta").textContent = new Date().toLocaleDateString([], {
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+    }).toUpperCase();
+
     const sales = state.sales;
 
     // "Owed on the floor" is the live figure. Without it the manager cannot see what is
@@ -291,6 +306,9 @@
 
     el("tlLive").textContent = sales ? rupees(sales.live_paise) : "—";
     el("tlClosed").textContent = sales ? rupees(sales.closed_paise) : "—";
+
+    el("stripOwed").textContent = sales ? rupees(sales.live_paise) : "—";
+    el("stripTaken").textContent = sales ? rupees(sales.closed_paise) : "—";
 
     el("kpiClosed").textContent = sales ? rupees(sales.closed_paise) : "—";
     el("kpiClosedSub").textContent = sales
@@ -733,10 +751,23 @@
     state.view = view;
     state.openSale = null;
 
+    // Both navigations mark the same view: the topbar tabs, and the suite layout's rail.
+    // Only one of them is on screen at a time, but keeping them in step means switching
+    // layout never lands on a page whose nav disagrees with what is showing.
     document.querySelectorAll(".tab").forEach((tab) => {
       const on = tab.dataset.view === view;
       tab.classList.toggle("tab--on", on);
       tab.setAttribute("aria-selected", String(on));
+    });
+
+    const TITLES = { floor: "Floor", sales: "Sales", pricing: "Pricing" };
+    el("crumbView").textContent = TITLES[view];
+    el("crumbTitle").textContent = TITLES[view];
+
+    document.querySelectorAll(".railitem").forEach((item) => {
+      const on = item.dataset.view === view;
+      item.classList.toggle("railitem--on", on);
+      item.setAttribute("aria-current", on ? "page" : "false");
     });
 
     ["floor", "sales", "pricing"].forEach((name) => {
@@ -779,6 +810,13 @@
     el("footStamp").textContent = state.linkDown
       ? "Disconnected"
       : `Live · updated ${new Date().toLocaleTimeString()}`;
+
+    // The suite layout's rail says the same thing, in the place that layout looks for it.
+    el("railStatus").textContent = state.linkDown ? "Disconnected" : "Live";
+    el("railStatus").style.color = state.linkDown ? "var(--st-locked)" : "";
+    el("railStamp").textContent = state.linkDown
+      ? "figures are stale"
+      : `updated ${new Date().toLocaleTimeString()}`;
   }
 
   // -------------------------------------------------------------------- modals
@@ -1184,8 +1222,16 @@
   loadPrefs();
 
   api("/health")
-    .then((health) => { el("footVenue").textContent = health.venue; })
-    .catch(() => { el("footVenue").textContent = "—"; });
+    .then((health) => {
+      el("footVenue").textContent = health.venue;
+      el("railVenue").textContent = health.venue;
+      el("crumbVenue").textContent = health.venue;
+    })
+    .catch(() => {
+      el("footVenue").textContent = "—";
+      el("railVenue").textContent = "—";
+      el("crumbVenue").textContent = "—";
+    });
 
   refresh();
   connectAlerts();

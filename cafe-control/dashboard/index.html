@@ -30,6 +30,50 @@
     </defs>
   </svg>
 
+  <!-- Suite layout only: a left rail carrying the identity, the venue, and the three
+       views. Inert everywhere else. Three nav items is what this product genuinely has;
+       padding it out to nine would be the same fabrication the tiles were guilty of. -->
+  <aside class="rail" aria-label="Sections">
+    <div class="rail__brand">
+      <p class="rail__eyebrow">Venue control</p>
+      <h2 class="rail__name">PlaySlot</h2>
+      <p class="rail__version">Café floor management</p>
+    </div>
+
+    <div class="venue">
+      <span class="venue__mark" aria-hidden="true">
+        <svg width="17" height="17"><use href="#i-active"/></svg>
+      </span>
+      <span class="venue__text">
+        <b id="railVenue">—</b>
+        <span id="railVenueMeta">—</span>
+      </span>
+    </div>
+
+    <nav class="rail__nav">
+      <p class="rail__section">Operations</p>
+      <button class="railitem railitem--on" data-view="floor" type="button">
+        <svg width="17" height="17" aria-hidden="true"><use href="#i-active"/></svg>
+        <span>Floor</span>
+        <b class="rail__badge" id="railBadge" hidden></b>
+      </button>
+      <p class="rail__section">Money</p>
+      <button class="railitem" data-view="sales" type="button">
+        <svg width="17" height="17" aria-hidden="true"><use href="#i-available"/></svg>
+        <span>Sales</span>
+      </button>
+      <button class="railitem" data-view="pricing" type="button">
+        <svg width="17" height="17" aria-hidden="true"><use href="#i-scheduled"/></svg>
+        <span>Pricing</span>
+      </button>
+    </nav>
+
+    <div class="rail__foot">
+      <span class="rail__status" id="railStatus">Live</span>
+      <span class="rail__stamp" id="railStamp">—</span>
+    </div>
+  </aside>
+
   <div class="app">
     <header class="topbar">
       <div class="brand">
@@ -39,6 +83,13 @@
           <p>PlaySlot venue control</p>
         </div>
       </div>
+      <!-- Suite layout only: the rail carries the product name, so the topbar carries
+           where you are instead. -->
+      <div class="crumb">
+        <p class="crumb__path"><span id="crumbVenue">—</span> / <b id="crumbView">Floor</b></p>
+        <h2 class="crumb__title" id="crumbTitle">Floor</h2>
+      </div>
+
       <div class="topbar__tools">
         <label class="search" title="Search units">
           <svg class="search__icon" width="18" height="18" aria-hidden="true"><use href="#i-search"/></svg>
@@ -69,6 +120,18 @@
       </div>
 
       <div id="view-floor" class="view">
+      <!-- Suite layout only. -->
+      <section class="hero">
+        <div>
+          <p class="hero__meta" id="heroMeta">—</p>
+          <h2 class="hero__title">Floor <span>tonight</span></h2>
+          <p class="hero__sub">Live occupancy, what the floor owes, and every unit on it.</p>
+        </div>
+        <div class="hero__tools">
+          <span class="livepill"><i aria-hidden="true"></i> Live · refreshing every second</span>
+        </div>
+      </section>
+
       <!-- The dense layout's replacement for the six-tile row: the two figures that
            actually change during a shift, and the one count a manager acts on. Every
            other tile below restates something the chip row already says. Hidden in the
@@ -89,6 +152,7 @@
 
       <section class="stats" aria-label="Floor summary">
         <article class="tile tile--hero">
+          <span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-active"/></svg></span>
           <span class="tile__label">Occupancy</span>
           <span class="tile__value" id="kpiOccupancy">—</span>
           <span class="tile__sub" id="kpiOccupancySub">— of — usable units in session</span>
@@ -96,23 +160,46 @@
             <div class="meter__fill" id="kpiOccupancyMeter" style="width:0%"></div>
           </div>
         </article>
-        <article class="tile"><span class="tile__label">Total units</span><span class="tile__value" id="kpiTotal">—</span><span class="tile__sub" id="kpiZones">— zones</span></article>
-        <article class="tile"><span class="tile__label">In session</span><span class="tile__value" id="kpiInUse">—</span><span class="tile__sub" id="kpiUrgent">—</span></article>
-        <article class="tile"><span class="tile__label">Available</span><span class="tile__value" id="kpiAvailable">—</span><span class="tile__sub">ready now</span></article>
-        <article class="tile">
+        <article class="tile"><span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-available"/></svg></span><span class="tile__label">Total units</span><span class="tile__value" id="kpiTotal">—</span><span class="tile__sub" id="kpiZones">— zones</span></article>
+        <article class="tile"><span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-active"/></svg></span><span class="tile__label">In session</span><span class="tile__value" id="kpiInUse">—</span><span class="tile__sub" id="kpiUrgent">—</span></article>
+        <article class="tile"><span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-available"/></svg></span><span class="tile__label">Available</span><span class="tile__value" id="kpiAvailable">—</span><span class="tile__sub">ready now</span></article>
+        <article class="tile"><span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-warning"/></svg></span>
           <span class="tile__label">Owed on the floor</span>
           <span class="tile__value tile__value--live" id="kpiLive">—</span>
           <span class="tile__sub" id="kpiLiveSub">— sessions running</span>
         </article>
-        <article class="tile"><span class="tile__label">Taken today</span><span class="tile__value" id="kpiClosed">—</span><span class="tile__sub" id="kpiClosedSub">— sessions closed</span></article>
+        <article class="tile"><span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-scheduled"/></svg></span><span class="tile__label">Taken today</span><span class="tile__value" id="kpiClosed">—</span><span class="tile__sub" id="kpiClosedSub">— sessions closed</span></article>
+        <!-- Suite layout only. It takes the place of the occupancy tile, which the strip
+             above already carries — the strip answers "how full", the tiles answer
+             "what is it worth and what needs me". -->
+        <article class="tile tile--attention" id="tileUrgent">
+          <span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-overtime"/></svg></span>
+          <span class="tile__label">Needs attention</span>
+          <span class="tile__value" id="kpiAttention">—</span>
+          <span class="tile__sub">overtime or locked</span>
+        </article>
       </section>
 
       <section class="dist" aria-label="Status distribution">
-        <div class="dist__head">
-          <h2>Floor status</h2>
-          <div class="legend" id="legend"></div>
+        <!-- Suite layout only: the occupancy figure and the money read out either side of
+             the bar, so the strip answers "how full, and what is it worth" on one line.
+             The bar and its legend are the same ones the other layouts use. -->
+        <div class="dist__lead">
+          <b id="stripPct">—</b>
+          <span>Occupancy</span>
         </div>
-        <div class="dist__bar" id="distBar" role="img" aria-label="Distribution of unit states"></div>
+        <div class="dist__main">
+          <div class="dist__head">
+            <h2>Floor status</h2>
+            <div class="legend" id="legend"></div>
+          </div>
+          <div class="dist__bar" id="distBar" role="img" aria-label="Distribution of unit states"></div>
+        </div>
+        <div class="dist__figures">
+          <span class="sfig"><b id="stripOwed">—</b><span>On the floor</span></span>
+          <span class="sfig"><b id="stripTaken">—</b><span>Taken today</span></span>
+          <span class="sfig"><b id="stripFree">—</b><span>Free now</span></span>
+        </div>
       </section>
 
       <section class="controls">

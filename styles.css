@@ -357,3 +357,7 @@ button { font-family: inherit; }
   .field__row, .detail__grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+[data-layout="suite"] .alerts { max-width: 300px; gap: 6px; }
+[data-layout="suite"] .alerts .alert { font-size: 12.5px; padding: 8px 11px; }
+[data-layout="suite"] .alerts > *:nth-last-child(n+4) { display: none; }
