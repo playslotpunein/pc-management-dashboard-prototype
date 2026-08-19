@@ -1103,3 +1103,68 @@ button { font-family: inherit; }
 [data-layout="suite"] .alerts { max-width: 300px; gap: 6px; }
 [data-layout="suite"] .alerts .alert { font-size: 12.5px; padding: 8px 11px; }
 [data-layout="suite"] .alerts > *:nth-last-child(n+4) { display: none; }
+
+/* ============================================================================
+   Unit type colours
+   ----------------------------------------------------------------------------
+   A second colour system on a surface whose colour already means something, so
+   it is deliberately built not to compete: the type is always a small dot beside
+   its written name, never a fill, never a border, never the card's ground. State
+   keeps every large coloured area on the card. If you can see it from across the
+   room, it is state; if you had to look at the card, it is type.
+
+   Chosen with the same validator as the state palette, in the order they appear
+   on screen (pc · ps5 · sim · pool · snooker) — blue and violet cannot be
+   neighbours, they collapse to ΔE 1.1 under protanopia. Light passes every check
+   (worst adjacent pair 28.6 normal, 8.2 simulated). Dark clears the normal-vision
+   floor at 26.5 but sits at 7.1 simulated, inside the band that is legal only
+   with secondary encoding — which is the written type name next to every dot.
+   ========================================================================== */
+:root {
+  --ut-pc:      #4f7cff;
+  --ut-ps5:     #c94070;
+  --ut-sim:     #00a99d;
+  --ut-pool:    #8b4fd6;
+  --ut-snooker: #a6740a;
+}
+
+:root[data-theme="dark"], [data-layout="suite"] {
+  --ut-pc:      #5f7dfa;
+  --ut-ps5:     #e8618c;
+  --ut-sim:     #2ec4b6;
+  --ut-pool:    #b57bff;
+  --ut-snooker: #d9a520;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ut-pc:      #5f7dfa;
+    --ut-ps5:     #e8618c;
+    --ut-sim:     #2ec4b6;
+    --ut-pool:    #b57bff;
+    --ut-snooker: #d9a520;
+  }
+}
+
+.t-pc      { --ut: var(--ut-pc); }
+.t-ps5     { --ut: var(--ut-ps5); }
+.t-sim     { --ut: var(--ut-sim); }
+.t-pool    { --ut: var(--ut-pool); }
+.t-snooker { --ut: var(--ut-snooker); }
+
+.utype { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.utype::before {
+  content: ""; width: 7px; height: 7px; border-radius: 999px; flex: none;
+  background: var(--ut, var(--muted));
+}
+
+/* On the pricing cards and the sales table the dot leads a heading, so it earns a
+   little more weight. Still a dot: the heading beside it is what names the type. */
+.utype--lead::before { width: 9px; height: 9px; }
+.utype--lead { gap: 8px; }
+
+/* Zone and type share the card's sub-line, so they need a separator that is not another
+   dot — the type already has one. */
+.card__sub--meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card__sub--meta > .utype::after { content: none; }
+.card__sub--meta .utype { color: var(--ink-2); }

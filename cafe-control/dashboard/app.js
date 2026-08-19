@@ -49,6 +49,11 @@
 
   const UNIT_TYPES = Object.keys(TYPE_LABEL);
 
+  /** The type as a coloured dot plus its name. Always both — the dot alone would be a
+   *  second colour system competing with state, which owns every large coloured area. */
+  const typeChip = (type, extra = "") =>
+    `<span class="utype t-${esc(type)}${extra}">${esc(TYPE_LABEL[type] || type)}</span>`;
+
   /** How a unit's time is actually held when it runs out.
    *
    *  Worth showing on the card. A manager glancing at an overtime pool table needs to
@@ -482,7 +487,7 @@
         </div>`;
     } else if (unit.state === "available") {
       body = `
-        <div class="card__sub">Idle · ${esc(TYPE_LABEL[unit.type] || unit.type)}</div>
+        <div class="card__sub">Idle</div>
         <div class="card__actions">
           <button class="btn btn--primary" data-act="start" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>Start session</button>
           <button class="btn" data-act="maint-on" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>Maintenance</button>
@@ -502,7 +507,7 @@
         <div class="card__head">
           <div>
             <h3 class="card__title">${esc(unit.name)}</h3>
-            <div class="card__sub">${esc(unit.zone || "—")}</div>
+            <div class="card__sub card__sub--meta">${esc(unit.zone || "—")} ${typeChip(unit.type)}</div>
           </div>
           <div class="card__badges">
             ${manual ? `<span class="badge badge--manual" title="${esc(ENFORCEMENT.manual.hint)}">Manual</span>` : ""}
@@ -598,7 +603,7 @@
       <tbody>
         ${sales.by_type.map((row) => `
           <tr>
-            <td>${esc(TYPE_LABEL[row.unit_type] || row.unit_type)}</td>
+            <td>${typeChip(row.unit_type, " utype--lead")}</td>
             <td class="num">${rupees(row.closed_paise)}</td>
             <td class="num">${row.live_paise ? rupees(row.live_paise) : "—"}</td>
             <td class="num">${row.closed_sessions} closed · ${row.live_sessions} live</td>
@@ -660,7 +665,7 @@
         <article class="card">
           <div class="card__head">
             <div>
-              <h3 class="card__title">${esc(TYPE_LABEL[type])}</h3>
+              <h3 class="card__title">${typeChip(type, " utype--lead")}</h3>
               <div class="card__sub">${current ? "Rate in force now" : "No rate set"}</div>
             </div>
             ${current ? `<span class="pill pill--live">Live</span>` : ""}
