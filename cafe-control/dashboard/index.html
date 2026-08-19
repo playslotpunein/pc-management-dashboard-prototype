@@ -69,6 +69,24 @@
       </div>
 
       <div id="view-floor" class="view">
+      <!-- The dense layout's replacement for the six-tile row: the two figures that
+           actually change during a shift, and the one count a manager acts on. Every
+           other tile below restates something the chip row already says. Hidden in the
+           classic layout; the tiles are hidden in the dense one. -->
+      <section class="topline" aria-label="Floor summary">
+        <div class="topline__figures">
+          <span class="figure">
+            <span class="figure__label">Owed on the floor</span>
+            <b class="figure__value figure__value--live" id="tlLive">—</b>
+          </span>
+          <span class="figure">
+            <span class="figure__label">Taken today</span>
+            <b class="figure__value" id="tlClosed">—</b>
+          </span>
+        </div>
+        <span class="topline__attention" id="tlAttention" hidden></span>
+      </section>
+
       <section class="stats" aria-label="Floor summary">
         <article class="tile tile--hero">
           <span class="tile__label">Occupancy</span>

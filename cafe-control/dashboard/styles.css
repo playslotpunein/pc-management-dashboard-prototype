@@ -650,3 +650,137 @@ button { font-family: inherit; }
 
 @keyframes alert-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .alert { animation: none; } }
+
+/* ============================================================================
+   Dense layout  ·  [data-layout="dense"]
+   ----------------------------------------------------------------------------
+   A counter tool for someone standing up, glancing between customers — not a
+   product page. Everything below follows from that and from one observation:
+   the floor's state was drawn three times over. It appeared in the six KPI
+   tiles, again in the FLOOR STATUS bar, and again in the filter chips. Two of
+   those said "In session" and disagreed — 6 in the tile (anything occupied)
+   against 1 in the chip (strictly active) — which is what happens to a number
+   nobody reads.
+
+   So: one source of truth per fact, and the space that buys goes to the cards,
+   which are the only thing on screen anyone acts on.
+   ========================================================================== */
+
+/* The classic chrome, gone. The chips keep the state counts; the strip keeps the
+   two figures that actually move during a shift. */
+[data-layout="dense"] .stats,
+[data-layout="dense"] .dist { display: none; }
+
+:root:not([data-layout="dense"]) .topline { display: none; }
+
+[data-layout="dense"] .topline {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 14px;
+}
+[data-layout="dense"] .topline__figures { display: flex; gap: 26px; flex-wrap: wrap; }
+.figure { display: flex; align-items: baseline; gap: 8px; }
+.figure__label { font-size: 12.5px; color: var(--muted); }
+.figure__value { font-size: 21px; font-weight: 680; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.figure__value--live { color: var(--st-active); }
+
+/* The one count worth promoting, because it is the only one with an action attached.
+   Carries a word as well as a colour, like every other state cue here. */
+.topline__attention {
+  font-size: 13px; font-weight: 650; padding: 4px 11px; border-radius: 999px;
+  color: var(--st-locked); background: var(--st-locked-t);
+  border: 1px solid color-mix(in srgb, var(--st-locked) 30%, transparent);
+}
+
+/* ---- Cards: tighter, and the state readable without reading ---- */
+
+/* 240px against 300px is a fifth more per row: twenty units land in four rows on a
+   counter monitor instead of five, which is the difference between a glance and a
+   scroll. */
+[data-layout="dense"] .grid {
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+/* Flat by default. Uniform elevation on every surface is uniform emphasis, which is
+   none — a locked unit and an idle one carried the same shadow. Elevation is kept for
+   things that genuinely float: modals and toasts. */
+[data-layout="dense"] .card {
+  box-shadow: none;
+  padding: 12px 13px 12px 15px;
+  border-left-width: 5px;
+  border-radius: 11px;
+}
+
+[data-layout="dense"] .card__head { margin-bottom: 7px; }
+[data-layout="dense"] .card__title { font-size: 14.5px; }
+[data-layout="dense"] .card__sub { font-size: 11.5px; }
+
+/* The countdown is what the manager is actually reading, so it is the biggest thing
+   on the card and wears the state colour. */
+[data-layout="dense"] .countdown { font-size: 26px; }
+[data-layout="dense"] .card__total { font-size: 15px; }
+[data-layout="dense"] .card__actions { gap: 5px; margin-top: 9px; }
+[data-layout="dense"] .card__actions .btn { font-size: 12px; padding: 5px 8px; }
+
+/* Urgent units get a tinted ground as well as the ring — the cue survives being seen
+   from across a room and out of the corner of an eye, which a 1px border does not.
+   Colour is never alone: the badge still carries an icon and a written state. */
+[data-layout="dense"] .card--urgent {
+  background: linear-gradient(180deg, var(--st-t), var(--surface) 70%);
+  box-shadow: 0 0 0 1px var(--st);
+}
+
+/* Idle units recede. There is nothing to do about them, and every one that shouts is
+   one more thing between the manager and the unit that does need them. */
+[data-layout="dense"] .card.u-available,
+[data-layout="dense"] .card.u-maintenance { background: var(--surface-2); }
+[data-layout="dense"] .card.u-maintenance { opacity: .72; }
+
+/* ---- The card head, at 254px ----
+   The title must not wrap. "Snooker 1" breaking into "Snooker" / "1" costs a line on
+   every card in the row, because a grid row is as tall as its tallest member — so one
+   wrapped title pushes four other cards taller. It truncates instead, and the badges
+   shrink to buy it the room. */
+[data-layout="dense"] .card__head { flex-wrap: wrap; }
+[data-layout="dense"] .card__title {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Enough room for a real unit name before the title will give ground. A card carrying
+   two badges — "Manual" plus a state — has no room for both and a name on one line, so
+   the badges take the next line and the name stays whole. Truncating to "Snook…" while
+   the badges wrapped anyway was the worst of both. */
+[data-layout="dense"] .card__head > div:first-child { min-width: 9ch; flex: 1 1 auto; }
+[data-layout="dense"] .badge { padding: 2px 7px; font-size: 11px; gap: 4px; }
+[data-layout="dense"] .badge svg { width: 11px; height: 11px; }
+
+/* ---- The countdown row ----
+   Side-by-side columns each got half of 254px, which is not enough for
+   "over by · nothing will lock it" — it wrapped to two lines and took the row with it.
+   The two numbers share a line; the sentence explaining them gets the full width. */
+[data-layout="dense"] .card__meta {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+
+/* The two blocks stop being columns and their contents become siblings, so the numbers
+   can share a line and the sentence can have the width to itself. */
+[data-layout="dense"] .card__meta > div { display: contents; }
+[data-layout="dense"] .card__meta .countdown { order: 1; }
+[data-layout="dense"] .card__meta .card__total { order: 2; margin-left: auto; }
+[data-layout="dense"] .card__meta > div:first-child .card__sub { order: 3; flex-basis: 100%; }
+
+/* "running total" goes. A rupee figure beside a countdown, on a card with an End & bill
+   button, is not ambiguous — and the label cost a whole line on every occupied card. */
+[data-layout="dense"] .card__meta > div:last-child .card__sub { display: none; }
+
+/* ---- Alerts ----
+   Left was worse than right: it put them over the first column instead of the last, and
+   the first column is where the urgency sort puts the units that need attention. Back to
+   the right, narrower, and capped at three — beyond that they stop being read anyway.
+
+   Not solved, only reduced: a fixed stack over a full-width grid covers *something*. A
+   real fix is a right rail, which costs 320px of permanent width for something that is
+   empty most of the evening. Worth revisiting if the alerts get busier. */
+[data-layout="dense"] .alerts { max-width: 290px; gap: 6px; }
+[data-layout="dense"] .alerts .alert { font-size: 12.5px; padding: 8px 11px; }
+[data-layout="dense"] .alerts > *:nth-last-child(n+4) { display: none; }

@@ -273,6 +273,13 @@
 
     el("kpiAvailable").textContent = available.length;
 
+    // The dense layout's strip. Same numbers, three of them instead of six — the rest
+    // restate the chip row directly below, which is where a manager reads them anyway.
+    el("tlAttention").hidden = urgent.length === 0;
+    el("tlAttention").textContent = urgent.length === 1
+      ? "1 unit needs you"
+      : `${urgent.length} units need you`;
+
     const sales = state.sales;
 
     // "Owed on the floor" is the live figure. Without it the manager cannot see what is
@@ -281,6 +288,9 @@
     el("kpiLiveSub").textContent = sales
       ? `${sumBy(sales.by_type, "live_sessions")} sessions running`
       : "—";
+
+    el("tlLive").textContent = sales ? rupees(sales.live_paise) : "—";
+    el("tlClosed").textContent = sales ? rupees(sales.closed_paise) : "—";
 
     el("kpiClosed").textContent = sales ? rupees(sales.closed_paise) : "—";
     el("kpiClosedSub").textContent = sales
