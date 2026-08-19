@@ -3,90 +3,117 @@
    Palette derived from the validated dataviz reference tokens.
    ============================================================ */
 
+/* ============================================================================
+   Palettes  ·  [data-palette]
+   ----------------------------------------------------------------------------
+   Four named themes the venue manager chooses from. A palette sets the ground,
+   the ink, the brand accent and the two colour systems (status + type). What it
+   never changes is what a colour MEANS: the status ramp and the type dots are
+   identical across the three dark themes — validated once — so switching theme
+   never makes a manager relearn "locked". Only the ground and the accent move.
+
+   Daylight is the default and lives on :root; the others override. Tints derive
+   from the base tokens by color-mix, so a palette supplies seven status hues and
+   five type hues and nothing else has to be kept in sync. Each dark palette's
+   status ramp was checked against its own surface with the dataviz validator —
+   the shared ramp clears CVD, normal-vision and contrast on all three grounds.
+   ============================================================================ */
 :root {
-  color-scheme: light;
-
-  /* surfaces & ink */
-  --plane:        #f4f4f1;
-  --surface:      #ffffff;
-  --surface-2:    #fafaf8;
-  --ink:          #0b0b0b;
-  --ink-2:        #52514e;
-  --muted:        #898781;
-  --hairline:     rgba(11, 11, 11, 0.10);
-  --hairline-2:   rgba(11, 11, 11, 0.06);
-  --ring:         rgba(42, 120, 214, 0.35);
-
-  /* status (fixed, never themed) */
-  --available:    #0ca30c;
-  --in-use:       #2a78d6;
-  --maintenance:  #fab219;
-  --offline:      #d03b3b;
-
-  /* tints for soft fills */
-  --available-t:   rgba(12, 163, 12, 0.12);
-  --in-use-t:      rgba(42, 120, 214, 0.12);
-  --maintenance-t: rgba(250, 178, 25, 0.16);
-  --offline-t:     rgba(208, 59, 59, 0.12);
-
-  --accent:       #2a78d6;
-  --good-text:    #006300;
-
-  --shadow:       0 1px 2px rgba(11,11,11,.05), 0 6px 20px rgba(11,11,11,.06);
-  --shadow-lg:    0 10px 40px rgba(11,11,11,.18);
-  --radius:       14px;
-  --radius-sm:    10px;
-
+  --radius: 14px;
+  --radius-sm: 10px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Derived once, correct for every palette: a tint is its own base at low alpha. */
+  --st-available-t:   color-mix(in srgb, var(--st-available) 15%, transparent);
+  --st-scheduled-t:   color-mix(in srgb, var(--st-scheduled) 15%, transparent);
+  --st-active-t:      color-mix(in srgb, var(--st-active) 15%, transparent);
+  --st-warning-t:     color-mix(in srgb, var(--st-warning) 16%, transparent);
+  --st-overtime-t:    color-mix(in srgb, var(--st-overtime) 15%, transparent);
+  --st-locked-t:      color-mix(in srgb, var(--st-locked) 15%, transparent);
+  --st-maintenance-t: color-mix(in srgb, var(--st-maintenance) 15%, transparent);
+  --available-t:      color-mix(in srgb, var(--available) 13%, transparent);
+  --in-use-t:         color-mix(in srgb, var(--in-use) 14%, transparent);
+  --maintenance-t:    color-mix(in srgb, var(--maintenance) 16%, transparent);
+  --offline-t:        color-mix(in srgb, var(--offline) 14%, transparent);
 }
 
-:root[data-theme="dark"] {
+/* --- Daylight (default): bright, cool. For a well-lit counter. ---
+   On :root as the no-JS default, and on the explicit selector so a swatch or any subtree
+   carrying data-palette="daylight" re-scopes to it just like the dark palettes do. */
+:root, [data-palette="daylight"] {
+  color-scheme: light;
+  --plane: #f4f4f1; --surface: #ffffff; --surface-2: #fafaf8;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --hairline: rgba(11,11,11,.10); --hairline-2: rgba(11,11,11,.06);
+  --accent: #2a78d6; --ring: rgba(42,120,214,.35); --good-text: #006300;
+  --shadow: 0 1px 2px rgba(11,11,11,.05), 0 6px 20px rgba(11,11,11,.06);
+  --shadow-lg: 0 10px 40px rgba(11,11,11,.18);
+  --st-available:#0ca30c; --st-scheduled:#a21caf; --st-active:#2a78d6;
+  --st-warning:#c98500; --st-overtime:#d95926; --st-locked:#a11f2c; --st-maintenance:#64748b;
+  --available:#0ca30c; --in-use:#2a78d6; --maintenance:#fab219; --offline:#d03b3b;
+  --ut-pc:#4f7cff; --ut-ps5:#c94070; --ut-sim:#00a99d; --ut-pool:#8b4fd6; --ut-snooker:#a6740a;
+  --glow-a: transparent; --glow-b: transparent;
+}
+
+/* --- Midnight: warm near-black, blue accent. For a dim gaming cafe. --- */
+[data-palette="midnight"] {
   color-scheme: dark;
-  --plane:        #0d0d0d;
-  --surface:      #191918;
-  --surface-2:    #1f1f1d;
-  --ink:          #ffffff;
-  --ink-2:        #c3c2b7;
-  --muted:        #8f8d86;
-  --hairline:     rgba(255, 255, 255, 0.12);
-  --hairline-2:   rgba(255, 255, 255, 0.06);
-  --ring:         rgba(57, 135, 229, 0.5);
-
-  --available:    #12b512;
-  --in-use:       #3987e5;
-  --maintenance:  #fab219;
-  --offline:      #e05252;
-
-  --available-t:   rgba(18, 181, 18, 0.16);
-  --in-use-t:      rgba(57, 135, 229, 0.18);
-  --maintenance-t: rgba(250, 178, 25, 0.16);
-  --offline-t:     rgba(224, 82, 82, 0.16);
-
-  --accent:       #3987e5;
-  --good-text:    #0ca30c;
-  --shadow:       0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.4);
-  --shadow-lg:    0 12px 48px rgba(0,0,0,.6);
+  --plane:#0d0d0d; --surface:#191918; --surface-2:#1f1f1d;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#8f8d86;
+  --hairline:rgba(255,255,255,.12); --hairline-2:rgba(255,255,255,.06);
+  --accent:#3987e5; --ring:rgba(57,135,229,.5); --good-text:#0ca30c;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.4);
+  --shadow-lg:0 12px 48px rgba(0,0,0,.6);
+  --st-available:#10a310; --st-scheduled:#d55181; --st-active:#3987e5;
+  --st-warning:#d59400; --st-overtime:#e8703a; --st-locked:#e33d5c; --st-maintenance:#94a3b8;
+  --available:#12b512; --in-use:#3987e5; --maintenance:#fab219; --offline:#e05252;
+  --ut-pc:#5f7dfa; --ut-ps5:#e8618c; --ut-sim:#2ec4b6; --ut-pool:#b57bff; --ut-snooker:#d9a520;
+  --glow-a: transparent; --glow-b: transparent;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --plane:#0d0d0d; --surface:#191918; --surface-2:#1f1f1d;
-    --ink:#fff; --ink-2:#c3c2b7; --muted:#8f8d86;
-    --hairline:rgba(255,255,255,0.12); --hairline-2:rgba(255,255,255,0.06); --ring:rgba(57,135,229,0.5);
-    --available:#12b512; --in-use:#3987e5; --maintenance:#fab219; --offline:#e05252;
-    --available-t:rgba(18,181,18,0.16); --in-use-t:rgba(57,135,229,0.18);
-    --maintenance-t:rgba(250,178,25,0.16); --offline-t:rgba(224,82,82,0.16);
-    --accent:#3987e5; --good-text:#0ca30c;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.4); --shadow-lg:0 12px 48px rgba(0,0,0,.6);
-  }
+/* --- Indigo: deep navy, violet accent, a soft glow. The reference look. --- */
+[data-palette="indigo"] {
+  color-scheme: dark;
+  --plane:#08080f; --surface:#101018; --surface-2:#15151f;
+  --ink:#f4f4f7; --ink-2:#a9a9bd; --muted:#6f6f87;
+  --hairline:rgba(255,255,255,.075); --hairline-2:rgba(255,255,255,.045);
+  --accent:#7c74ff; --ring:rgba(124,116,255,.45); --good-text:#22c98a;
+  --shadow:none; --shadow-lg:0 24px 70px rgba(0,0,0,.7);
+  --st-available:#10a310; --st-scheduled:#d55181; --st-active:#3987e5;
+  --st-warning:#d59400; --st-overtime:#e8703a; --st-locked:#e33d5c; --st-maintenance:#94a3b8;
+  --available:#12b512; --in-use:#3987e5; --maintenance:#fab219; --offline:#e05252;
+  --ut-pc:#5f7dfa; --ut-ps5:#e8618c; --ut-sim:#2ec4b6; --ut-pool:#b57bff; --ut-snooker:#d9a520;
+  --glow-a: color-mix(in srgb, var(--accent) 14%, transparent);
+  --glow-b: color-mix(in srgb, #22c98a 7%, transparent);
+}
+
+/* --- Slate: cool graphite, teal accent. A calmer, instrument-like dark. --- */
+[data-palette="slate"] {
+  color-scheme: dark;
+  --plane:#0e1116; --surface:#171b22; --surface-2:#1d222b;
+  --ink:#eef1f5; --ink-2:#aeb6c2; --muted:#6e7684;
+  --hairline:rgba(255,255,255,.08); --hairline-2:rgba(255,255,255,.05);
+  --accent:#0e8f83; --ring:rgba(14,143,131,.45); --good-text:#2ec4b6;
+  --shadow:none; --shadow-lg:0 24px 70px rgba(0,0,0,.65);
+  --st-available:#10a310; --st-scheduled:#d55181; --st-active:#3987e5;
+  --st-warning:#d59400; --st-overtime:#e8703a; --st-locked:#e33d5c; --st-maintenance:#94a3b8;
+  --available:#12b512; --in-use:#3987e5; --maintenance:#fab219; --offline:#e05252;
+  --ut-pc:#5f7dfa; --ut-ps5:#e8618c; --ut-sim:#2ec4b6; --ut-pool:#b57bff; --ut-snooker:#d9a520;
+  --glow-a: color-mix(in srgb, var(--accent) 13%, transparent);
+  --glow-b: transparent;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
   font-family: var(--font);
-  background: var(--plane);
+  /* The glow is a palette token: Indigo and Slate set it, the others leave it
+     transparent, so this one rule is flat ground or an ambient wash by theme. */
+  background:
+    radial-gradient(900px 520px at 20% -8%, var(--glow-a), transparent 62%),
+    radial-gradient(720px 440px at 98% 2%, var(--glow-b), transparent 60%),
+    var(--plane);
+  background-attachment: fixed;
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
   line-height: 1.45;
@@ -152,13 +179,15 @@ button { font-family: inherit; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .btn svg { flex: none; }
 
+/* The theme button shows a sun on the light palette and a moon on the dark ones. It no
+   longer toggles — it opens the palette picker — but the glyph still reflects the ground. */
 .only-dark { display: none; }
-:root[data-theme="dark"] .only-dark { display: inline; }
-:root[data-theme="dark"] .only-light { display: none; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .only-dark { display: inline; }
-  :root:not([data-theme="light"]) .only-light { display: none; }
-}
+[data-palette="midnight"] .only-dark,
+[data-palette="indigo"] .only-dark,
+[data-palette="slate"] .only-dark { display: inline; }
+[data-palette="midnight"] .only-light,
+[data-palette="indigo"] .only-light,
+[data-palette="slate"] .only-light { display: none; }
 
 /* ---------- Stat tiles ---------- */
 .stats {
@@ -258,12 +287,14 @@ button { font-family: inherit; }
 .badge--in-use { background: var(--in-use-t); color: var(--in-use); }
 .badge--maintenance { background: var(--maintenance-t); color: #8a6100; }
 .badge--offline { background: var(--offline-t); color: var(--offline); }
-:root[data-theme="dark"] .badge--maintenance { color: var(--maintenance); }
-:root[data-theme="dark"] .badge--available { color: var(--available); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .badge--maintenance { color: var(--maintenance); }
-  :root:not([data-theme="light"]) .badge--available { color: var(--available); }
-}
+/* On a dark ground the amber maintenance badge and the green available one read better
+   at full strength than as the darkened light-mode text colour. */
+[data-palette="midnight"] .badge--maintenance,
+[data-palette="indigo"] .badge--maintenance,
+[data-palette="slate"] .badge--maintenance { color: var(--maintenance); }
+[data-palette="midnight"] .badge--available,
+[data-palette="indigo"] .badge--available,
+[data-palette="slate"] .badge--available { color: var(--available); }
 
 .session {
   background: var(--surface-2); border: 1px solid var(--hairline-2);
@@ -391,50 +422,8 @@ button { font-family: inherit; }
    in app.js — and why on cards and chips the icon and the written label, not the
    colour, are what carry the state.
    ========================================================================== */
-:root {
-  --st-available:   #0ca30c;
-  --st-scheduled:   #a21caf;
-  --st-active:      #2a78d6;
-  --st-warning:     #c98500;
-  --st-overtime:    #d95926;
-  --st-locked:      #a11f2c;
-  --st-maintenance: #64748b;
-
-  --st-available-t:   rgba(12, 163, 12, 0.12);
-  --st-scheduled-t:   rgba(162, 28, 175, 0.13);
-  --st-active-t:      rgba(42, 120, 214, 0.12);
-  --st-warning-t:     rgba(201, 133, 0, 0.16);
-  --st-overtime-t:    rgba(217, 89, 38, 0.15);
-  --st-locked-t:      rgba(161, 31, 44, 0.14);
-  --st-maintenance-t: rgba(100, 116, 139, 0.14);
-}
-
-/* The dark values are declared twice on purpose, matching the pattern the rest of this
-   file already uses. A viewer's theme has three states, not two: an explicit choice
-   stamps data-theme, but the default "system" setting stamps nothing at all. Declaring
-   these only under [data-theme="dark"] would leave a system-dark manager reading the
-   light-mode status ramp against a dark ground. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --st-available:   #10a310;
-    --st-scheduled:   #d55181;
-    --st-active:      #3987e5;
-    --st-warning:     #d59400;
-    --st-overtime:    #e8703a;
-    --st-locked:      #e33d5c;
-    --st-maintenance: #94a3b8;
-  }
-}
-
-[data-theme="dark"] {
-  --st-available:   #10a310;
-  --st-scheduled:   #d55181;
-  --st-active:      #3987e5;
-  --st-warning:     #d59400;
-  --st-overtime:    #e8703a;
-  --st-locked:      #e33d5c;
-  --st-maintenance: #94a3b8;
-}
+/* Status colours live in the palette blocks at the top of this file, one ramp per
+   theme. Here they are only mapped onto the .u-<state> helper the cards and chips use. */
 
 .u-available   { --st: var(--st-available);   --st-t: var(--st-available-t); }
 .u-scheduled   { --st: var(--st-scheduled);   --st-t: var(--st-scheduled-t); }
@@ -808,40 +797,9 @@ button { font-family: inherit; }
    as the rollup returns a prior-period comparison.
    ========================================================================== */
 
-[data-layout="suite"] {
-  --plane:      #08080f;
-  --surface:    #101018;
-  --surface-2:  #15151f;
-  --ink:        #f4f4f7;
-  --ink-2:      #a9a9bd;
-  --muted:      #6f6f87;
-  --hairline:   rgba(255,255,255,.075);
-  --hairline-2: rgba(255,255,255,.045);
-  --accent:     #7c74ff;
-  --ring:       rgba(124,116,255,.45);
-  --shadow:     none;
-  --shadow-lg:  0 24px 70px rgba(0,0,0,.7);
-  color-scheme: dark;
-}
-
-/* The status hues, restepped for this darker ground. Same measured separation. */
-[data-layout="suite"] {
-  --st-available:   #22c98a;
-  --st-scheduled:   #b57bff;
-  --st-active:      #6f8bff;
-  --st-warning:     #e0a020;
-  --st-overtime:    #f0743a;
-  --st-locked:      #f2547d;
-  --st-maintenance: #6b7794;
-}
-
-[data-layout="suite"] body {
-  background:
-    radial-gradient(900px 520px at 22% -8%, rgba(124,116,255,.13), transparent 62%),
-    radial-gradient(700px 420px at 96% 4%, rgba(34,201,138,.07), transparent 60%),
-    var(--plane);
-  background-attachment: fixed;
-}
+/* The suite layout is purely structural now — rail, hero, strip, card sizing. Its
+   colours come from whichever palette is active (Indigo or Slate in the presets), and
+   its ambient glow is the palette's --glow-* tokens applied to body above. */
 
 /* ---- The rail ----
    The shell for every layout, not just the suite one. Navigation belongs somewhere
@@ -861,7 +819,9 @@ button { font-family: inherit; }
 }
 .app { margin-left: 208px; max-width: 1400px; padding: 0 22px 48px; }
 
-[data-layout="suite"] .rail { background: #0b0b13; }
+/* A shade below the plane rather than a fixed navy, so it sits right under any palette
+   the suite layout wears — Indigo's navy or Slate's graphite alike. */
+[data-layout="suite"] .rail { background: color-mix(in srgb, var(--plane) 82%, #000); }
 [data-layout="suite"] .app { max-width: none; padding: 0 30px 56px; }
 
 .rail__brand { padding: 0 8px 16px; }
@@ -1120,31 +1080,7 @@ button { font-family: inherit; }
    floor at 26.5 but sits at 7.1 simulated, inside the band that is legal only
    with secondary encoding — which is the written type name next to every dot.
    ========================================================================== */
-:root {
-  --ut-pc:      #4f7cff;
-  --ut-ps5:     #c94070;
-  --ut-sim:     #00a99d;
-  --ut-pool:    #8b4fd6;
-  --ut-snooker: #a6740a;
-}
-
-:root[data-theme="dark"], [data-layout="suite"] {
-  --ut-pc:      #5f7dfa;
-  --ut-ps5:     #e8618c;
-  --ut-sim:     #2ec4b6;
-  --ut-pool:    #b57bff;
-  --ut-snooker: #d9a520;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ut-pc:      #5f7dfa;
-    --ut-ps5:     #e8618c;
-    --ut-sim:     #2ec4b6;
-    --ut-pool:    #b57bff;
-    --ut-snooker: #d9a520;
-  }
-}
+/* Type colours live in the palette blocks too. Mapped onto the .t-<type> helper below. */
 
 .t-pc      { --ut: var(--ut-pc); }
 .t-ps5     { --ut: var(--ut-ps5); }
@@ -1168,3 +1104,33 @@ button { font-family: inherit; }
 .card__sub--meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .card__sub--meta > .utype::after { content: none; }
 .card__sub--meta .utype { color: var(--ink-2); }
+
+/* ---------- Theme picker ----------
+   Each row previews the theme it selects: the swatch carries its own data-palette, which
+   re-scopes the palette variables inside it, so `var(--plane)`, `var(--accent)` and the
+   status dots resolve to that theme rather than the active one. The choice is made by
+   looking. */
+.themelist { display: flex; flex-direction: column; gap: 8px; }
+.themerow {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  appearance: none; text-align: left; cursor: pointer; font: inherit; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 12px; padding: 11px 13px;
+}
+.themerow:hover { border-color: var(--accent); }
+.themerow--on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.themerow__text { display: flex; flex-direction: column; min-width: 0; }
+.themerow__text b { font-size: 14px; font-weight: 640; }
+.themerow__text span { font-size: 12px; color: var(--muted); }
+.themerow__on {
+  margin-left: auto; font-size: 10.5px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--accent); align-self: center;
+}
+
+.swatch {
+  flex: none; width: 56px; height: 42px; border-radius: 9px; padding: 7px;
+  background: var(--plane); border: 1px solid var(--hairline);
+  display: flex; flex-wrap: wrap; gap: 5px; align-content: center;
+}
+.swatch__accent { flex-basis: 100%; height: 9px; border-radius: 3px; background: var(--accent); }
+.swatch__st { width: 9px; height: 9px; border-radius: 999px; }

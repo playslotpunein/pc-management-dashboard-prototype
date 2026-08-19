@@ -72,6 +72,7 @@
 
   const state = {
     view: "floor",
+    preset: "daylight",
     units: [],
     sales: null,
     summary: null,
@@ -1138,6 +1139,10 @@
     const tab = event.target.closest("[data-view]");
     if (tab) { showView(tab.dataset.view); return; }
 
+    // The theme picker's rows, and the demo's quick-switch buttons, both carry it.
+    const preset = event.target.closest("[data-preset-pick]");
+    if (preset) { applyPreset(preset.dataset.presetPick); closeModal(); return; }
+
     const price = event.target.closest("[data-price]");
     if (price) { promptPrice(price.dataset.price); return; }
 
@@ -1186,13 +1191,41 @@
   el("typeFilter").onchange = (e) => { state.filterType = e.target.value; savePrefs(); render(); };
   el("sortBy").onchange = (e) => { state.sort = e.target.value; savePrefs(); render(); };
 
+  /** The themes a manager chooses from. Each names a layout and a palette; picking one
+   *  sets both. Layout is structure (rail, density), palette is colour — kept as two
+   *  attributes so the two concerns stay separable, even though the manager picks a
+   *  bundle. Order here is the order they appear in the picker. */
+  const PRESETS = {
+    daylight: { layout: "dense", palette: "daylight", label: "Daylight",
+                blurb: "Bright and cool, for a well-lit counter." },
+    midnight: { layout: "dense", palette: "midnight", label: "Midnight",
+                blurb: "Warm near-black, for a dim gaming café." },
+    indigo:   { layout: "suite", palette: "indigo",   label: "Indigo",
+                blurb: "Deep navy with a violet accent and a rail." },
+    slate:    { layout: "suite", palette: "slate",    label: "Slate",
+                blurb: "Cool graphite with a teal accent and a rail." },
+  };
+
+  function applyPreset(name) {
+    const preset = PRESETS[name] ? name : "daylight";
+    const root = document.documentElement;
+
+    root.dataset.preset = preset;
+    root.dataset.layout = PRESETS[preset].layout;
+    root.dataset.palette = PRESETS[preset].palette;
+
+    state.preset = preset;
+    savePrefs();
+    render();
+  }
+
   // Theme and filters are the only things kept locally. They are presentation, and
   // losing them costs nothing — unlike a cached rupee figure, which would be wrong.
   function savePrefs() {
     try {
       localStorage.setItem("playslot.prefs",
         JSON.stringify({
-          theme: document.documentElement.dataset.theme,
+          preset: state.preset,
           sort: state.sort,
           // Kept because someone running the tables upstairs sets it once a shift and
           // should not have to set it again after every refresh.
@@ -1203,24 +1236,56 @@
   }
 
   function loadPrefs() {
-    try {
-      const saved = JSON.parse(localStorage.getItem("playslot.prefs") || "{}");
-      if (saved.theme) document.documentElement.dataset.theme = saved.theme;
-      if (saved.sort) { state.sort = saved.sort; el("sortBy").value = saved.sort; }
-      // renderTypes() drops it back to "all" if the venue no longer has that kind.
-      if (saved.filterType) state.filterType = saved.filterType;
+    let saved = {};
 
-      if (PERIODS.some((p) => p.key === saved.salesPeriod)) {
-        state.salesPeriod = saved.salesPeriod;
-      }
+    try {
+      saved = JSON.parse(localStorage.getItem("playslot.prefs") || "{}");
     } catch { /* ignore */ }
+
+    if (saved.sort) { state.sort = saved.sort; el("sortBy").value = saved.sort; }
+    if (saved.filterType) state.filterType = saved.filterType;
+    if (PERIODS.some((p) => p.key === saved.salesPeriod)) state.salesPeriod = saved.salesPeriod;
+
+    // Preset resolution, in order of preference: a saved preset; the old light/dark
+    // toggle migrated (dark → Midnight, light → Daylight); otherwise the OS setting
+    // decides the first-run default so a dim café does not open blinding white.
+    let preset = PRESETS[saved.preset] ? saved.preset : null;
+
+    if (!preset && saved.theme) preset = saved.theme === "dark" ? "midnight" : "daylight";
+
+    if (!preset) {
+      preset = window.matchMedia?.("(prefers-color-scheme: dark)").matches
+        ? "midnight" : "daylight";
+    }
+
+    applyPreset(preset);
   }
 
-  el("themeBtn").onclick = () => {
-    const root = document.documentElement;
-    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
-    savePrefs();
-  };
+  /** The picker. A row per theme: a live swatch of that theme's ground, accent and three
+   *  status dots, so the choice is made by looking rather than by reading a name. */
+  function promptTheme() {
+    const rows = Object.entries(PRESETS).map(([key, p]) => `
+      <button class="themerow${state.preset === key ? " themerow--on" : ""}"
+              data-preset-pick="${esc(key)}" type="button">
+        <span class="swatch" data-palette="${esc(p.palette)}">
+          <i class="swatch__accent"></i>
+          <i class="swatch__st" style="background:var(--st-available)"></i>
+          <i class="swatch__st" style="background:var(--st-warning)"></i>
+          <i class="swatch__st" style="background:var(--st-locked)"></i>
+        </span>
+        <span class="themerow__text">
+          <b>${esc(p.label)}</b>
+          <span>${esc(p.blurb)}</span>
+        </span>
+        ${state.preset === key ? '<span class="themerow__on">Current</span>' : ""}
+      </button>`).join("");
+
+    openModal("Theme", `<div class="themelist">${rows}</div>
+      <p class="modal__note">The status colours — available, warning, overtime, locked —
+      stay the same in every theme, so switching never changes what a colour means.</p>`);
+  }
+
+  el("themeBtn").onclick = promptTheme;
 
   // ---------------------------------------------------------------------- boot
 

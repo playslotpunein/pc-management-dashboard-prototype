@@ -1,21 +1,23 @@
-"""The dashboard's theme palette, checked as data.
+"""The dashboard's theme palettes, checked as data.
 
 The server mounts the dashboard, so a stylesheet that contradicts itself ships with it.
 
-A viewer's theme has three states, not two. An explicit choice stamps ``data-theme`` on
-the root; the default "system" setting stamps nothing at all and is resolved by
-``prefers-color-scheme``. So every dark value is declared twice, in two places that have
-to agree.
+The manager picks from four named themes, each a ``[data-palette]`` block that sets the
+whole palette in one place. Two properties matter and neither is visible by looking at
+one screen:
 
-They did not agree. Updating the status palette changed the ``prefers-color-scheme``
-copy and missed the ``[data-theme]`` one — the two are indented differently, so a
-search-and-replace over one block of text matched only the first. That renders perfectly
-in OS-dark and serves the old colours to anyone who used the toggle, which is exactly the
-kind of fault nobody finds by looking at their own screen.
+* **Every palette is complete.** A palette that forgets ``--st-locked`` doesn't error —
+  it silently inherits the previous theme's red, so switching themes half-changes the
+  floor. This asserts each palette declares the full token set.
 
-The file holds two such pairs (the base surfaces and the status palette) written with
-slightly different selectors, so this walks the stylesheet rather than matching on a
-fixed marker.
+* **The three dark themes share one status ramp.** The whole promise of the picker is
+  that switching theme never changes what a colour *means* — "locked" is the same red in
+  Midnight, Indigo and Slate. This asserts those three declare byte-identical ``--st-*``
+  values, so a manager never has to relearn the ramp.
+
+An earlier version checked that a light block and a system-dark block agreed, back when a
+theme was a light/dark toggle. That whole class of bug is gone now that a palette is
+declared once rather than three times.
 """
 
 from __future__ import annotations
@@ -27,64 +29,47 @@ import pytest
 
 STYLES = Path(__file__).resolve().parents[2] / "dashboard" / "styles.css"
 
-#: A selector that sets custom properties on the root itself, in either dark form.
-#: Descendant selectors like `:root[data-theme="dark"] .badge` are excluded — they style
-#: one component, not the palette.
-ROOT_DARK_TOGGLE = re.compile(r'^:?root?\[data-theme="dark"\]$|^\[data-theme="dark"\]$')
-ROOT_DARK_MEDIA = re.compile(r'^:root:not\(\[data-theme="light"\]\)$')
-
+#: An innermost rule: a prelude then a body with no further braces. Excluding braces from
+#: the body makes it nesting-proof — an @media wrapper never matches, the rule inside does.
+RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 DECLARATION = re.compile(r"(--[\w-]+)\s*:\s*([^;]+);")
 
-#: An innermost rule: a prelude, then a body containing no further braces. Excluding
-#: braces from the body is what makes this nesting-proof — an `@media` wrapper's body
-#: holds another rule and so never matches, while the rule inside it does.
-RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
+#: The names of the four themes, and the selector each is declared under. Daylight shares
+#: its rule with :root (it is also the no-JS default).
+PALETTES = {
+    "daylight": re.compile(r'^\[data-palette="daylight"\]$'),
+    "midnight": re.compile(r'^\[data-palette="midnight"\]$'),
+    "indigo": re.compile(r'^\[data-palette="indigo"\]$'),
+    "slate": re.compile(r'^\[data-palette="slate"\]$'),
+}
 
-SHORT_HEX = re.compile(r"^#([0-9a-f])([0-9a-f])([0-9a-f])$", re.I)
+DARK = ("midnight", "indigo", "slate")
+
+#: Every token a palette must set for the page to be fully coloured by it alone.
+REQUIRED = {
+    "--plane", "--surface", "--surface-2",
+    "--ink", "--ink-2", "--muted",
+    "--hairline", "--hairline-2",
+    "--accent", "--ring",
+    "--st-available", "--st-scheduled", "--st-active",
+    "--st-warning", "--st-overtime", "--st-locked", "--st-maintenance",
+    "--ut-pc", "--ut-ps5", "--ut-sim", "--ut-pool", "--ut-snooker",
+}
+
+STATUS = tuple(t for t in REQUIRED if t.startswith("--st-"))
 
 
-def normalise(value: str) -> str:
-    """Compare what the browser renders, not how it was typed.
-
-    The two blocks were written at different times and differ harmlessly in spacing and
-    hex length — `#fff` against `#ffffff`, `rgba(0,0,0,.4)` against `rgba(0, 0, 0, .4)`.
-    Flagging those would bury the drift that actually changes a colour.
-    """
-    value = re.sub(r"\s+", "", value.strip().lower())
-    short = SHORT_HEX.match(value)
-
-    return f"#{short[1] * 2}{short[2] * 2}{short[3] * 2}" if short else value
-
-
-def blocks_after(css: str, pattern: re.Pattern[str]) -> list[str]:
-    """Bodies of every rule one of whose selectors matches ``pattern``.
-
-    Splits the prelude on commas rather than matching the whole thing, because a rule may
-    legitimately serve several selectors at once — `:root[data-theme="dark"],
-    [data-layout="suite"] { … }` declares the dark palette and the suite one together.
-    Matching only the single-selector form made that rule invisible here and reported the
-    two dark blocks as having drifted when they had not.
-    """
-    bodies = []
+def properties_under(css: str, pattern: re.Pattern[str]) -> dict[str, str]:
+    """Custom properties from every rule one of whose selectors matches ``pattern``."""
+    found: dict[str, str] = {}
 
     for prelude, body in RULE.findall(css):
-        # Comments and any earlier rule's tail sit above the selector; the selector is
-        # whatever survives on the last line.
         lines = re.sub(r"/\*.*?\*/", "", prelude, flags=re.S).strip().splitlines()
         selectors = (lines[-1] if lines else "").split(",")
 
         if any(pattern.match(part.strip()) for part in selectors):
-            bodies.append(body)
-
-    return bodies
-
-
-def properties(bodies: list[str]) -> dict[str, str]:
-    found: dict[str, str] = {}
-
-    for body in bodies:
-        for name, value in DECLARATION.findall(body):
-            found[name] = normalise(value)
+            for name, value in DECLARATION.findall(body):
+                found[name] = re.sub(r"\s+", "", value.strip().lower())
 
     return found
 
@@ -95,47 +80,44 @@ def css() -> str:
 
 
 @pytest.fixture(scope="module")
-def toggle(css) -> dict[str, str]:
-    return properties(blocks_after(css, ROOT_DARK_TOGGLE))
+def palettes(css) -> dict[str, dict[str, str]]:
+    return {name: properties_under(css, pat) for name, pat in PALETTES.items()}
 
 
-@pytest.fixture(scope="module")
-def media(css) -> dict[str, str]:
-    return properties(blocks_after(css, ROOT_DARK_MEDIA))
+class TestEveryPaletteIsComplete:
+    @pytest.mark.parametrize("name", list(PALETTES))
+    def test_it_declares_the_full_token_set(self, palettes, name):
+        missing = REQUIRED - set(palettes[name])
 
-
-class TestTheTwoDarkDeclarationsAgree:
-    def test_both_forms_are_present(self, toggle, media):
-        """Losing either one silently strands a third of viewers on the light palette."""
-        assert toggle, "no root-level [data-theme=dark] custom properties found"
-        assert media, "no root-level prefers-color-scheme custom properties found"
-
-    def test_they_declare_the_same_properties(self, toggle, media):
-        assert set(toggle) == set(media)
-
-    def test_they_declare_the_same_values(self, toggle, media):
-        drifted = {
-            name: (media[name], toggle[name])
-            for name in media
-            if media.get(name) != toggle.get(name)
-        }
-
-        assert not drifted, (
-            f"dark values have drifted between the two blocks: {drifted} — a manager "
-            "using the theme toggle would see different colours from one whose OS is "
-            "set to dark"
+        assert not missing, (
+            f"the {name} theme is missing {sorted(missing)} — those tokens would inherit "
+            "whatever theme was active before, so switching to it half-changes the floor"
         )
 
 
-class TestDarkIsItsOwnPalette:
-    def test_every_state_colour_is_restepped_for_the_dark_surface(self, css, toggle):
-        """Dark is selected, not an automatic flip; reusing a light step is the bug."""
-        light = properties(blocks_after(css, re.compile(r"^:root$")))
+class TestTheDarkThemesShareOneStatusRamp:
+    def test_locked_is_the_same_red_in_every_dark_theme(self, palettes):
+        """The load-bearing one: a manager must not relearn 'locked' per theme."""
+        reds = {name: palettes[name]["--st-locked"] for name in DARK}
 
-        states = {name: value for name, value in toggle.items() if name.startswith("--st-")}
+        assert len(set(reds.values())) == 1, f"--st-locked differs across dark themes: {reds}"
 
-        assert states, "no --st-* status colours declared for dark"
+    @pytest.mark.parametrize("token", STATUS)
+    def test_the_whole_ramp_is_identical(self, palettes, token):
+        values = {name: palettes[name][token] for name in DARK}
 
-        reused = [name for name, value in states.items() if light.get(name) == value]
+        assert len(set(values.values())) == 1, (
+            f"{token} differs across the dark themes: {values} — the status ramp is meant "
+            "to be constant so only the ground and accent change between them"
+        )
 
-        assert not reused, f"these keep their light-mode step in dark: {reused}"
+    def test_daylight_has_its_own_ramp(self, palettes):
+        """Light needs darker status hues for contrast on white; it is not the dark ramp.
+
+        Guards the opposite mistake: sharing the dark ramp onto the light ground, where
+        several of the hues would fail contrast.
+        """
+        shared_dark = {palettes["midnight"][t] for t in STATUS}
+        daylight = {palettes["daylight"][t] for t in STATUS}
+
+        assert not (shared_dark & daylight), "daylight reuses dark-mode status hues"
