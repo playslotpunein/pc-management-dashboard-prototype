@@ -74,6 +74,12 @@ curl localhost:8000/units        # live countdown + running total
 curl localhost:8000/sales/today    # closed + what is owed on the floor
 curl localhost:8000/sales/summary  # today, this week and this month in one response
 curl 'localhost:8000/sales?period=month'   # the individual sales behind one of them
+
+# Stock a snack, then ring it onto an open tab — see "Inventory" below.
+curl -X POST localhost:8000/inventory -H 'Content-Type: application/json' \
+  -d '{"name":"Coke","unit_price_paise":6000,"category":"Drinks","stock_qty":24,"low_stock_threshold":6}'
+curl -X POST localhost:8000/sessions/<session_id>/items \
+  -H 'Content-Type: application/json' -d '{"item_id":"<id>","qty":1}'   # returns the updated bill
 ```
 
 ---
@@ -156,6 +162,7 @@ The bill:
 ```
 base            booked minutes at the snapshot rate
 + extensions    each one its own line, at the rate captured with it
++ items         snacks and drinks rung onto the tab, qty × snapshot price
 + surcharge     extra PS5 controllers, prorated
 + overtime      every minute past grace — grace itself is the free window
 ```
@@ -219,9 +226,43 @@ panel polls every second, and the widest of them spans a month of rows.
 
 ---
 
-## The seven tables
+## Inventory
 
-`units` · `sessions` · `sales` · `pricing` · `agents` · `sync_outbox` · `activity_log`
+The counter also sells snacks and drinks, so the `inventory` table holds a shelf and every
+tab can carry item lines beside its time.
+
+```bash
+curl -X POST localhost:8000/inventory ...        # stock an item
+curl localhost:8000/inventory                     # the shelf, low ones flagged is_low
+curl -X POST 'localhost:8000/inventory/<id>/restock?qty=24'
+curl -X PATCH localhost:8000/inventory/<id> -d '{"unit_price_paise":7000}'   # not stock
+curl -X POST localhost:8000/sessions/<sid>/items -d '{"item_id":"<id>","qty":2}'
+curl -X DELETE localhost:8000/sessions/<sid>/items/<line_id>   # void a mis-ring
+```
+
+Three rules, each for the same reason the time side has them:
+
+- **A sale decrements stock and appends the bill line in one transaction**, so the shelf
+  count and the tab can never disagree. A sale the shelf cannot cover is **refused**
+  (`OutOfStock`) rather than allowed to run the count negative.
+- **The price is snapshotted onto the line**, exactly as the time rate is. Re-pricing Coke
+  at 7pm never rewrites a tab that added one at 6pm. Items bill as a straight qty × price —
+  an item is not time, so there is no proration.
+- **Stock only ever moves through a sale or a restock.** `PATCH /inventory/<id>` edits
+  name, price, category, threshold and `archived`, but never `stock_qty` — so every change
+  to the count has a reason behind it. Voiding a line puts the stock back.
+
+**The low-stock alert fires on the crossing, not on every sale below it.** When a sale
+takes an item to or under its `low_stock_threshold` — or empties it — the engine publishes
+one alert down the same SSE channel the time alerts use. A shelf already sitting at two
+does not toast on every can sold until someone restocks it. Because it belongs to the
+venue rather than a unit, it carries an empty `unit_id`/`session_id`.
+
+---
+
+## The eight tables
+
+`units` · `sessions` · `sales` · `pricing` · `inventory` · `agents` · `sync_outbox` · `activity_log`
 
 Defined once in `playslot/models.py`. The same classes drive local SQLite and Supabase
 Postgres, and both migrations generate from here — defining the schema twice is how the two
@@ -363,6 +404,11 @@ an unbounded queue behind a wedged tab is a memory leak that takes the server wi
 A dashboard connecting late gets a short replay, so opening the tab to a locked unit
 comes with the explanation rather than without it.
 
+The **low-stock** alert is the one that is not a timer edge: it is raised from the sale
+that crosses the threshold rather than on a tick, and published down this same stream. It
+belongs to the venue, not a unit, so its `unit_id` and `session_id` are empty — see
+[Inventory](#inventory).
+
 ---
 
 ## Migrations
@@ -391,7 +437,7 @@ Three details in `migrations/env.py` are load-bearing rather than boilerplate:
   Alembic writes `EnumValue(length=32)` without the `enum_class` its constructor
   requires, and the migration dies partway through, leaving a half-built schema.
 - **An existing database is adopted, not upgraded.** One created by the pre-migration
-  build has all seven tables and no `alembic_version`; an upgrade would `CREATE TABLE`
+  build has all the tables and no `alembic_version`; an upgrade would `CREATE TABLE`
   over tables holding real sales. `run_migrations` stamps it instead, and a test asserts
   the rows survive.
 

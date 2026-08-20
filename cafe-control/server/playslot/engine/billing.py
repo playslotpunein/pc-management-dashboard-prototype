@@ -58,6 +58,18 @@ class Extension:
 
 
 @dataclass(frozen=True, slots=True)
+class SoldItem:
+    """One inventory line on the tab: a snack or a drink, at the price it sold for."""
+
+    name: str
+    qty: int
+
+    #: Snapshotted when the item was added, so a later price change never rewrites an
+    #: open tab — the same rule the time rate follows.
+    unit_price_paise: Paise
+
+
+@dataclass(frozen=True, slots=True)
 class BillLine:
     kind: str
     description: str
@@ -121,6 +133,7 @@ def compute_bill(
     controller_surcharge_paise_per_hour: Paise = 0,
     extra_controllers: int = 0,
     locks_at_grace_end: bool = False,
+    items: Sequence["SoldItem"] = (),
 ) -> Bill:
     """Produce the itemised bill for a session.
 
@@ -187,6 +200,20 @@ def compute_bill(
                 amount_paise=prorate_hourly(
                     extension.rate_snapshot_paise, extension.minutes
                 ),
+            )
+        )
+
+    # Snacks and drinks rung up against the tab. Each carries its own snapshotted price,
+    # so this is a straight qty × price with no proration — an item is not time.
+    for item in items:
+        lines.append(
+            BillLine(
+                kind="item",
+                description=(
+                    f"{item.qty}× {item.name}" if item.qty > 1 else item.name
+                ),
+                minutes=None,
+                amount_paise=item.qty * item.unit_price_paise,
             )
         )
 

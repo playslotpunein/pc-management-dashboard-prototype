@@ -1,4 +1,4 @@
-"""The seven tables. Everything else is derived.
+"""The eight tables. Everything else is derived.
 
 These SQLAlchemy models are the single definition the architecture calls for: the same
 classes drive local SQLite at the venue and Supabase Postgres in the cloud, and both
@@ -235,6 +235,14 @@ class Session(Base):
     #: Shape: [{"minutes": int, "granted_at": iso8601, "rate_snapshot_paise": int}]
     extensions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
+    #: Snacks and drinks rung up against this tab, same JSON-on-the-session reasoning as
+    #: extensions. Each line snapshots the item's price at the moment it was sold, so a
+    #: price change never rewrites an open tab, and carries the name so a bill is still
+    #: readable after the item is renamed or archived.
+    #: Shape: [{"line_id": str, "item_id": str, "name": str, "qty": int,
+    #:          "unit_price_paise": int, "added_at": iso8601}]
+    items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+
     #: THE auditability rule. Captured when the session starts and never updated. A
     #: pricing change at 6pm must not alter a bill for someone who started at 5pm.
     rate_snapshot_paise: Mapped[int] = mapped_column(BigInteger)
@@ -412,3 +420,46 @@ class ActivityLog(Base):
     is_append_only: Mapped[bool] = mapped_column(Boolean, default=True)
 
     __table_args__ = (Index("ix_activity_venue_time", "venue_id", "timestamp"),)
+
+
+class InventoryItem(Base):
+    """A sellable stock item — a can of Coke, a packet of chips.
+
+    Separate from Pricing, which prices *time* by unit type and keeps a history so old
+    bills stay explainable. Inventory prices in place: a bill snapshots the price onto the
+    session line at the moment of sale (see Session.items), so this row can change freely
+    without a second historical table.
+    """
+
+    __tablename__ = "inventory"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    venue_id: Mapped[str] = mapped_column(String(36), index=True)
+
+    name: Mapped[str] = mapped_column(String(80))
+    #: Free-text grouping for the dashboard — "Drinks", "Snacks". Never billed on.
+    category: Mapped[str] = mapped_column(String(40), default="")
+
+    unit_price_paise: Mapped[int] = mapped_column(BigInteger)
+
+    #: On hand right now. Decremented when sold, incremented on restock. Never negative:
+    #: the engine refuses a sale it cannot cover rather than letting this go below zero.
+    stock_qty: Mapped[int] = mapped_column(Integer, default=0)
+
+    #: At or below this, the item is "low" and a sale that reaches it raises an alert.
+    #: Zero means only running out (reaching 0) is worth flagging.
+    low_stock_threshold: Mapped[int] = mapped_column(Integer, default=0)
+
+    #: Hidden from the counter without deleting it, so the sales it already appears on
+    #: keep their line. A deleted row would orphan those.
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (Index("ix_inventory_venue", "venue_id", "archived"),)
+
+    @property
+    def is_low(self) -> bool:
+        return self.stock_qty <= self.low_stock_threshold

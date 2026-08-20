@@ -1134,3 +1134,33 @@ button { font-family: inherit; }
 }
 .swatch__accent { flex-basis: 100%; height: 9px; border-radius: 3px; background: var(--accent); }
 .swatch__st { width: 9px; height: 9px; border-radius: 999px; }
+
+/* ---------- Inventory ---------- */
+.inv__actions { text-align: right; white-space: nowrap; }
+.inv__actions .btn { margin-left: 6px; }
+.tbl td.muted { color: var(--muted); }
+.stock { font-variant-numeric: tabular-nums; font-weight: 650; }
+.stock--low { color: var(--st-overtime); }
+.lowtag {
+  margin-left: 7px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; padding: 1px 6px; border-radius: 999px;
+  color: var(--st-overtime); background: var(--st-overtime-t);
+}
+.inv--low td { background: color-mix(in srgb, var(--st-overtime) 6%, transparent); }
+
+/* The low-stock badge on the Inventory nav item — amber, distinct from the red
+   attention badge on Floor, because it is a "top up soon", not a "deal with this now". */
+.rail__badge--warn { background: var(--st-warning); }
+
+/* The sell picker: a tap-target per item. */
+.selllist { display: flex; flex-direction: column; gap: 6px; max-height: 52vh; overflow: auto; }
+.sellrow {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; appearance: none; cursor: pointer; font: inherit; text-align: left;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 10px; padding: 10px 13px;
+}
+.sellrow:hover { border-color: var(--accent); }
+.sellrow[disabled] { opacity: .5; cursor: not-allowed; }
+.sellrow__name { font-weight: 620; display: flex; align-items: center; }
+.sellrow__meta { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }

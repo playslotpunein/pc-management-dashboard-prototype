@@ -54,6 +54,7 @@ EXPECTED_TABLES = {
     "agents",
     "sync_outbox",
     "activity_log",
+    "inventory",
 }
 
 

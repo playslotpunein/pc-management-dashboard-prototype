@@ -31,6 +31,8 @@ from playslot.db import create_db_engine, run_migrations, session_factory, unit_
 from playslot.engine import sales as sales_engine
 from playslot.events import AlertBroker, sse, sse_comment
 from playslot.engine.session_engine import (
+    ItemNotFound,
+    OutOfStock,
     SessionEngine,
     SessionEngineError,
     SessionNotFound,
@@ -44,8 +46,12 @@ from playslot.ws import AgentHub
 from playslot.money import format_rupees
 from playslot.schemas import (
     BillRead,
+    InventoryCreate,
+    InventoryRead,
+    InventoryUpdate,
     PricingCreate,
     PricingRead,
+    SessionItemAdd,
     RollupRead,
     SalesSummaryRead,
     SaleRead,
@@ -290,6 +296,40 @@ async def preview_bill(session_id: str, engine: EngineDep) -> BillRead:
         raise HTTPException(404, f"No session {exc}") from exc
 
 
+@app.post("/sessions/{session_id}/items", status_code=201, tags=["sessions"])
+async def add_session_item(
+    session_id: str, payload: SessionItemAdd, engine: EngineDep
+) -> BillRead:
+    """Ring a snack or drink onto the tab and return the bill as it now stands."""
+    try:
+        await engine.add_item_to_session(
+            session_id=session_id, item_id=payload.item_id, qty=payload.qty
+        )
+    except (SessionNotFound, ItemNotFound) as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except OutOfStock as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except SessionEngineError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    return BillRead.of(engine.preview_bill(session_id))
+
+
+@app.delete("/sessions/{session_id}/items/{line_id}", tags=["sessions"])
+async def remove_session_item(
+    session_id: str, line_id: str, engine: EngineDep
+) -> BillRead:
+    """Void a line and put the stock back."""
+    try:
+        engine.remove_item_from_session(session_id=session_id, line_id=line_id)
+    except SessionNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except SessionEngineError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    return BillRead.of(engine.preview_bill(session_id))
+
+
 @app.post("/sessions/{session_id}/end", response_model=SaleRead, tags=["sessions"])
 async def end_session(
     session_id: str, payload: SessionEnd, engine: EngineDep
@@ -486,6 +526,60 @@ async def list_pricing(engine: EngineDep, factory: FactoryDep) -> list[PricingRe
                 seen.add(key)
 
         return out
+
+
+# --------------------------------------------------------------------- inventory
+
+
+def _inventory_read(item) -> InventoryRead:
+    record = InventoryRead.model_validate(item)
+    record.unit_price = format_rupees(item.unit_price_paise)
+    record.is_low = item.is_low
+
+    return record
+
+
+@app.get("/inventory", response_model=list[InventoryRead], tags=["inventory"])
+async def list_inventory(
+    engine: EngineDep,
+    include_archived: Annotated[bool, Query()] = False,
+) -> list[InventoryRead]:
+    """The shelf. Low items are flagged so the dashboard can surface them."""
+    return [
+        _inventory_read(item)
+        for item in engine.list_inventory(include_archived=include_archived)
+    ]
+
+
+@app.post("/inventory", response_model=InventoryRead, status_code=201, tags=["inventory"])
+async def create_inventory_item(
+    payload: InventoryCreate, engine: EngineDep
+) -> InventoryRead:
+    return _inventory_read(engine.add_inventory_item(**payload.model_dump()))
+
+
+@app.patch("/inventory/{item_id}", response_model=InventoryRead, tags=["inventory"])
+async def update_inventory_item(
+    item_id: str, payload: InventoryUpdate, engine: EngineDep
+) -> InventoryRead:
+    try:
+        item = engine.update_inventory_item(item_id, **payload.model_dump())
+    except ItemNotFound as exc:
+        raise HTTPException(404, f"No item {exc}") from exc
+
+    return _inventory_read(item)
+
+
+@app.post("/inventory/{item_id}/restock", response_model=InventoryRead, tags=["inventory"])
+async def restock_item(
+    item_id: str, engine: EngineDep, qty: Annotated[int, Query(gt=0, le=9999)]
+) -> InventoryRead:
+    try:
+        return _inventory_read(engine.restock(item_id, qty))
+    except ItemNotFound as exc:
+        raise HTTPException(404, f"No item {exc}") from exc
+    except SessionEngineError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 # ------------------------------------------------------------------------ agents

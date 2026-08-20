@@ -172,3 +172,7 @@ class AlertKind(StrEnum):
 
     #: A scheduled booking was never claimed.
     NO_SHOW = "no_show"
+
+    #: An inventory item dropped to its low-stock threshold, or ran out. Venue-level
+    #: rather than tied to a unit — it fires when a sale is rung up, not on a tick.
+    LOW_STOCK = "low_stock"

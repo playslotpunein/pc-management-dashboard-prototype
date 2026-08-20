@@ -106,10 +106,19 @@ def commands() -> list[tuple[str, bool]]:
 
 
 @pytest.fixture
-def engine(seeded, clock, commands) -> SessionEngine:
+def published() -> list:
+    """Captures alerts the engine pushes to the broker (low-stock, and anything else)."""
+    return []
+
+
+@pytest.fixture
+def engine(seeded, clock, commands, published) -> SessionEngine:
     async def sink(unit_id: str, lock: bool) -> None:
         commands.append((unit_id, lock))
 
+    async def alerts(items, at) -> None:
+        published.extend(items)
+
     return SessionEngine(
-        seeded, venue_id=VENUE, clock=clock, command_sink=sink
+        seeded, venue_id=VENUE, clock=clock, command_sink=sink, alert_sink=alerts
     )

@@ -27,7 +27,7 @@ from playslot.clock import Clock, ensure_utc
 from playslot.db import unit_of_work
 from playslot.engine import lifecycle
 from playslot.engine.alerts import Alert, AlertLedger, evaluate, no_show
-from playslot.engine.billing import Extension, compute_bill
+from playslot.engine.billing import Extension, SoldItem, compute_bill
 from playslot.enums import (
     AlertKind,
     PaymentMethod,
@@ -36,7 +36,16 @@ from playslot.enums import (
     SessionStatus,
     UnitState,
 )
-from playslot.models import ActivityLog, Pricing, Sale, Session, SyncOutbox, Unit
+from playslot.models import (
+    ActivityLog,
+    InventoryItem,
+    Pricing,
+    Sale,
+    Session,
+    SyncOutbox,
+    Unit,
+    new_id,
+)
 
 #: Seconds of remaining time at which the amber warning fires. The architecture is
 #: explicit that this is exactly 300, not "about five minutes".
@@ -60,6 +69,14 @@ class UnitNotFound(SessionEngineError):
 
 class SessionNotFound(SessionEngineError):
     pass
+
+
+class ItemNotFound(SessionEngineError):
+    pass
+
+
+class OutOfStock(SessionEngineError):
+    """Refusing a sale the shelf cannot cover, rather than letting stock go negative."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,6 +543,14 @@ class SessionEngine:
             ),
             extra_controllers=session.extra_controllers,
             locks_at_grace_end=session.locks_at_grace_end,
+            items=[
+                SoldItem(
+                    name=raw["name"],
+                    qty=raw["qty"],
+                    unit_price_paise=raw["unit_price_paise"],
+                )
+                for raw in (session.items or [])
+            ],
         )
 
     def preview_bill(self, session_id: str):
@@ -541,6 +566,190 @@ class SessionEngine:
                 raise SessionNotFound(session_id)
 
             return self._bill_for(session, ended_at=self._clock.now())
+
+    # --------------------------------------------------------------- inventory
+
+    def list_inventory(self, *, include_archived: bool = False) -> list[InventoryItem]:
+        with unit_of_work(self._factory) as db:
+            query = select(InventoryItem).where(
+                InventoryItem.venue_id == self._venue_id
+            )
+
+            if not include_archived:
+                query = query.where(InventoryItem.archived.is_(False))
+
+            items = db.scalars(query.order_by(InventoryItem.name)).all()
+            db.expunge_all()
+
+            return list(items)
+
+    def add_inventory_item(
+        self,
+        *,
+        name: str,
+        unit_price_paise: int,
+        category: str = "",
+        stock_qty: int = 0,
+        low_stock_threshold: int = 0,
+    ) -> InventoryItem:
+        with unit_of_work(self._factory) as db:
+            item = InventoryItem(
+                venue_id=self._venue_id,
+                name=name,
+                category=category,
+                unit_price_paise=unit_price_paise,
+                stock_qty=stock_qty,
+                low_stock_threshold=low_stock_threshold,
+            )
+            db.add(item)
+            db.flush()
+            db.expunge(item)
+
+            return item
+
+    def update_inventory_item(self, item_id: str, **fields) -> InventoryItem:
+        """Patch name, category, price, threshold or archived. Not stock — that moves
+        only through a sale or a restock, so it always has a reason behind it."""
+        with unit_of_work(self._factory) as db:
+            item = self._owned_item(db, item_id)
+
+            for key, value in fields.items():
+                if value is not None and key != "stock_qty":
+                    setattr(item, key, value)
+
+            db.flush()
+            db.expunge(item)
+
+            return item
+
+    def restock(self, item_id: str, qty: int) -> InventoryItem:
+        if qty <= 0:
+            raise SessionEngineError("Restock quantity must be positive.")
+
+        with unit_of_work(self._factory) as db:
+            item = self._owned_item(db, item_id)
+            item.stock_qty += qty
+            db.flush()
+            db.expunge(item)
+
+            return item
+
+    def _owned_item(self, db: OrmSession, item_id: str) -> InventoryItem:
+        item = db.get(InventoryItem, item_id)
+
+        if item is None or item.venue_id != self._venue_id:
+            raise ItemNotFound(item_id)
+
+        return item
+
+    async def add_item_to_session(
+        self, *, session_id: str, item_id: str, qty: int = 1
+    ) -> dict:
+        """Ring a snack or drink onto an open tab.
+
+        Decrements stock and appends a priced line to the session in one transaction, so
+        the shelf count and the bill can never disagree. Raises rather than overselling.
+        A sale that leaves the item at or below its threshold publishes a low-stock alert
+        down the same channel the time alerts use.
+        """
+        if qty <= 0:
+            raise SessionEngineError("Quantity must be positive.")
+
+        low_alert: Alert | None = None
+
+        with unit_of_work(self._factory) as db:
+            session = db.get(Session, session_id)
+
+            if session is None:
+                raise SessionNotFound(session_id)
+
+            if session.status is not SessionStatus.ACTIVE:
+                raise SessionEngineError(f"Session is already {session.status.value}.")
+
+            item = self._owned_item(db, item_id)
+
+            if item.archived:
+                raise ItemNotFound(item_id)
+
+            if item.stock_qty < qty:
+                raise OutOfStock(
+                    f"Only {item.stock_qty} of {item.name} left; asked for {qty}."
+                )
+
+            before = item.stock_qty
+            item.stock_qty -= qty
+
+            line = {
+                "line_id": new_id(),
+                "item_id": item.id,
+                "name": item.name,
+                "qty": qty,
+                "unit_price_paise": item.unit_price_paise,
+                "added_at": self._clock.now().isoformat(),
+            }
+            # Reassigned, not mutated: a JSON column only sees a whole-list replacement as
+            # a change to persist.
+            session.items = [*(session.items or []), line]
+
+            low_alert = self._low_stock_alert(item, before)
+
+        if low_alert is not None:
+            await self._publish([low_alert])
+
+        return line
+
+    def remove_item_from_session(self, *, session_id: str, line_id: str) -> None:
+        """Void a line and put the stock back — a mis-ring, or the customer changed mind."""
+        with unit_of_work(self._factory) as db:
+            session = db.get(Session, session_id)
+
+            if session is None:
+                raise SessionNotFound(session_id)
+
+            if session.status is not SessionStatus.ACTIVE:
+                raise SessionEngineError(f"Session is already {session.status.value}.")
+
+            lines = session.items or []
+            line = next((row for row in lines if row["line_id"] == line_id), None)
+
+            if line is None:
+                raise SessionEngineError("No such line on this tab.")
+
+            item = db.get(InventoryItem, line["item_id"])
+
+            if item is not None:
+                item.stock_qty += line["qty"]
+
+            session.items = [row for row in lines if row["line_id"] != line_id]
+
+    @staticmethod
+    def _low_stock_alert(item: InventoryItem, before: int) -> Alert | None:
+        """One alert when a sale first crosses the threshold, one when it hits zero.
+
+        Only on the crossing, not on every sale below it — a shelf sitting at two units
+        should not toast on every can sold until someone restocks it.
+        """
+        threshold = item.low_stock_threshold
+        now = item.stock_qty
+
+        if now == 0 and before > 0:
+            message = f"{item.name} is out of stock"
+        elif now <= threshold < before:
+            message = f"{item.name} is low — {now} left"
+        else:
+            return None
+
+        return Alert(
+            kind=AlertKind.LOW_STOCK,
+            unit_id="",
+            session_id="",
+            message=message,
+        )
+
+    async def _publish(self, alerts: list[Alert]) -> None:
+        if alerts and self._alert_sink is not None:
+            with contextlib.suppress(Exception):
+                await self._alert_sink(alerts, self._clock.now())
 
     # -------------------------------------------------------------------- tick
 

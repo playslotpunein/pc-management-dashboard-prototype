@@ -230,6 +230,47 @@ class AlertRead(ApiModel):
 # --------------------------------------------------------------------- pricing
 
 
+class InventoryCreate(ApiModel):
+    name: str = Field(min_length=1, max_length=80)
+    unit_price_paise: int = Field(ge=0)
+    category: str = Field(default="", max_length=40)
+    stock_qty: int = Field(default=0, ge=0)
+    low_stock_threshold: int = Field(default=0, ge=0)
+
+
+class InventoryUpdate(ApiModel):
+    """Every field optional — a PATCH. Stock is deliberately not here; it moves only
+    through a sale or a restock so it always has a reason."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    unit_price_paise: int | None = Field(default=None, ge=0)
+    category: str | None = Field(default=None, max_length=40)
+    low_stock_threshold: int | None = Field(default=None, ge=0)
+    archived: bool | None = None
+
+
+class InventoryRead(ApiModel):
+    id: str
+    name: str
+    category: str
+    unit_price_paise: int
+    stock_qty: int
+    low_stock_threshold: int
+    archived: bool
+
+    #: Preformatted for the shelf list; the client does no money arithmetic.
+    unit_price: str = ""
+
+    #: True at or below the threshold — the dashboard flags these and a sale reaching one
+    #: raises the alert.
+    is_low: bool = False
+
+
+class SessionItemAdd(ApiModel):
+    item_id: str
+    qty: int = Field(default=1, gt=0, le=99)
+
+
 class PricingCreate(ApiModel):
     """A price change inserts a new row; it never updates an existing one.
 

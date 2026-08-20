@@ -183,6 +183,29 @@ counter looked correct while it happened. The only free window is the grace peri
 
 ---
 
+## Inventory
+
+The **Inventory** view is the shelf: snacks and drinks with a price, a stock count and a
+threshold. Add, restock and edit live here, but the view never touches a count itself —
+stock moves only through a sale or a **Restock**, so every change has a reason. Editing an
+item deliberately has no stock field for the same reason.
+
+**Selling is on the floor, not here.** An occupied card carries a **+ Item** button beside
+its extensions; it opens the shelf, and a tap rings one onto that tab. The line shows on
+the bill straight away and the stock comes down straight away, in one server call — the
+count and the tab can never drift apart, and an item the shelf cannot cover is refused
+rather than oversold. A sold-out item stays in the picker, disabled, so the manager sees it
+needs restocking rather than wondering where it went. The price is snapshotted onto the
+line, so re-pricing later never rewrites an open tab.
+
+**Low stock is surfaced twice, quietly.** The nav rail shows an amber count of how many
+items are at or below their threshold, and the instant a sale crosses one, a `low_stock`
+toast arrives on the same stream as the time alerts — held a little longer than a warning,
+because it is not urgent but should not be missed. It fires on the crossing, not on every
+sale below it: a shelf already low does not toast on every can until someone restocks it.
+
+---
+
 ## Closing a session
 
 **End & bill** shows the itemised bill before anything is taken, not just a total, with
@@ -213,5 +236,5 @@ different units:
 | File | |
 |---|---|
 | `index.html` | Shell and icon sprite |
-| `app.js` | Fetch, render, act. ~450 lines, no dependencies |
+| `app.js` | Fetch, render, act. ~1500 lines, no build step, no dependencies |
 | `styles.css` | Prototype styling plus the seven-state palette |

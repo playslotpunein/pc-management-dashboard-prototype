@@ -79,6 +79,7 @@
     salesPeriod: "today",
     saleList: [],
     pricing: [],
+    inventory: [],
     openSale: null,
     linkDown: false,
     filterState: "all",
@@ -123,13 +124,18 @@
       // Only the floor's data is polled every second. Sales and pricing change when a
       // manager acts, not on a timer, so they are fetched when their tab is opened —
       // re-querying every sale of the shift once a second would be pure waste.
-      const [units, summary] = await Promise.all([
+      // Inventory rides the main poll, unlike sales and pricing which are fetched on
+      // their tab: the low-stock badge on the rail has to stay live from any view, and
+      // the shelf is a handful of rows.
+      const [units, summary, inventory] = await Promise.all([
         api("/units"),
         api("/sales/summary"),
+        api("/inventory"),
       ]);
 
       state.units = units;
       state.summary = summary;
+      state.inventory = inventory;
 
       // The floor tab's KPIs are about the shift in front of the manager, so they stay
       // on today whatever the sales tab is showing.
@@ -290,6 +296,13 @@
     // layout reads them from here, so none of them can drift from another.
     el("railBadge").hidden = urgent.length === 0;
     el("railBadge").textContent = urgent.length;
+
+    // The low-stock count on the Inventory nav item — visible from any view, so a manager
+    // on the floor sees the shelf running down without opening the tab.
+    const low = state.inventory.filter((item) => item.is_low).length;
+    el("railLowBadge").hidden = low === 0;
+    el("railLowBadge").textContent = low;
+
     el("railVenueMeta").textContent =
       `${units.length} units · ${new Set(units.map((u) => u.zone || "—")).size} zones`;
 
@@ -484,6 +497,7 @@
         <div class="card__actions">
           <button class="btn" data-act="extend" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>+15 min</button>
           <button class="btn" data-act="extend30" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>+30</button>
+          <button class="btn" data-act="item" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>+ Item</button>
           <button class="btn btn--primary" data-act="end" data-unit="${esc(unit.id)}" ${busy ? "disabled" : ""}>End &amp; bill</button>
         </div>`;
     } else if (unit.state === "available") {
@@ -766,7 +780,7 @@
       tab.setAttribute("aria-selected", String(on));
     });
 
-    const TITLES = { floor: "Floor", sales: "Sales", pricing: "Pricing" };
+    const TITLES = { floor: "Floor", sales: "Sales", pricing: "Pricing", inventory: "Inventory" };
     el("crumbView").textContent = TITLES[view];
     el("crumbTitle").textContent = TITLES[view];
 
@@ -776,7 +790,7 @@
       item.setAttribute("aria-current", on ? "page" : "false");
     });
 
-    ["floor", "sales", "pricing"].forEach((name) => {
+    ["floor", "sales", "pricing", "inventory"].forEach((name) => {
       el(`view-${name}`).hidden = name !== view;
     });
 
@@ -793,6 +807,7 @@
 
     if (state.view === "sales") { renderSales(); renderFooter(); return; }
     if (state.view === "pricing") { renderPricing(); renderFooter(); return; }
+    if (state.view === "inventory") { renderInventory(); renderFooter(); return; }
 
     renderKpis();
     renderDistribution();
@@ -810,6 +825,182 @@
     el("emptyState").hidden = rows.length > 0;
 
     renderFooter();
+  }
+
+  // ------------------------------------------------------------------ inventory
+
+  function renderInventory() {
+    const rows = state.inventory;
+
+    el("invEmpty").hidden = rows.length > 0;
+    el("invList").innerHTML = rows.length ? `
+      <thead><tr>
+        <th>Item</th><th>Category</th><th class="num">Price</th>
+        <th class="num">In stock</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((item) => `
+          <tr class="${item.is_low ? "inv--low" : ""}">
+            <td><b>${esc(item.name)}</b></td>
+            <td class="muted">${esc(item.category || "—")}</td>
+            <td class="num">${esc(item.unit_price || rupees(item.unit_price_paise))}</td>
+            <td class="num">
+              <span class="stock ${item.is_low ? "stock--low" : ""}">${item.stock_qty}</span>
+              ${item.is_low
+                ? `<span class="lowtag">${item.stock_qty === 0 ? "out" : "low"}</span>`
+                : ""}
+            </td>
+            <td class="inv__actions">
+              <button class="btn btn--sm" data-inv="restock" data-item="${esc(item.id)}">Restock</button>
+              <button class="btn btn--sm" data-inv="edit" data-item="${esc(item.id)}">Edit</button>
+            </td>
+          </tr>`).join("")}
+      </tbody>` : "";
+  }
+
+  function findItem(id) {
+    return state.inventory.find((i) => i.id === id);
+  }
+
+  function promptAddItem() {
+    openModal("Add item", `
+      <label class="field"><span>Name</span><input id="i-name" type="text" placeholder="Coke" /></label>
+      <div class="field__row">
+        <label class="field"><span>Price (₹)</span>
+          <input id="i-price" type="number" min="0" step="5" value="60" /></label>
+        <label class="field"><span>Category</span>
+          <input id="i-cat" type="text" placeholder="Drinks" /></label>
+      </div>
+      <div class="field__row">
+        <label class="field"><span>Stock now</span>
+          <input id="i-stock" type="number" min="0" step="1" value="0" /></label>
+        <label class="field"><span>Alert at or below</span>
+          <input id="i-low" type="number" min="0" step="1" value="3" /></label>
+      </div>
+      <div class="modal__actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn--primary" id="m-go" type="button">Add item</button>
+      </div>`, () => {
+      el("m-go").onclick = async () => {
+        const name = el("i-name").value.trim();
+        if (!name) { toast("An item needs a name", true); return; }
+
+        const payload = {
+          name,
+          unit_price_paise: Math.round(Number(el("i-price").value) * 100),
+          category: el("i-cat").value.trim(),
+          stock_qty: Math.max(0, Math.round(Number(el("i-stock").value) || 0)),
+          low_stock_threshold: Math.max(0, Math.round(Number(el("i-low").value) || 0)),
+        };
+        closeModal();
+
+        try {
+          await api("/inventory", { method: "POST", body: JSON.stringify(payload) });
+          await refresh();
+          toast(`${name} added`);
+        } catch (error) { toast(error.message, true); }
+      };
+    });
+  }
+
+  function promptEditItem(item) {
+    openModal(`Edit ${item.name}`, `
+      <label class="field"><span>Name</span><input id="i-name" type="text" value="${esc(item.name)}" /></label>
+      <div class="field__row">
+        <label class="field"><span>Price (₹)</span>
+          <input id="i-price" type="number" min="0" step="5" value="${item.unit_price_paise / 100}" /></label>
+        <label class="field"><span>Category</span>
+          <input id="i-cat" type="text" value="${esc(item.category)}" /></label>
+      </div>
+      <label class="field"><span>Alert at or below</span>
+        <input id="i-low" type="number" min="0" step="1" value="${item.low_stock_threshold}" /></label>
+      <p class="modal__note">Stock is not edited here — it moves through a sale or a
+        restock, so the count always has a reason behind it.</p>
+      <div class="modal__actions">
+        <button class="btn btn--danger" id="m-arch" type="button">Archive</button>
+        <button class="btn btn--primary" id="m-go" type="button" style="margin-left:auto">Save</button>
+      </div>`, () => {
+      el("m-go").onclick = async () => {
+        const payload = {
+          name: el("i-name").value.trim(),
+          unit_price_paise: Math.round(Number(el("i-price").value) * 100),
+          category: el("i-cat").value.trim(),
+          low_stock_threshold: Math.max(0, Math.round(Number(el("i-low").value) || 0)),
+        };
+        closeModal();
+        try {
+          await api(`/inventory/${item.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+          await refresh();
+          toast(`${payload.name} saved`);
+        } catch (error) { toast(error.message, true); }
+      };
+      el("m-arch").onclick = async () => {
+        closeModal();
+        try {
+          await api(`/inventory/${item.id}`, { method: "PATCH", body: JSON.stringify({ archived: true }) });
+          await refresh();
+          toast(`${item.name} archived`);
+        } catch (error) { toast(error.message, true); }
+      };
+    });
+  }
+
+  function promptRestock(item) {
+    openModal(`Restock ${item.name}`, `
+      <p class="modal__lead">${item.stock_qty} in stock now.</p>
+      <label class="field"><span>Add how many?</span>
+        <input id="i-qty" type="number" min="1" step="1" value="12" /></label>
+      <div class="modal__actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn--primary" id="m-go" type="button">Add to stock</button>
+      </div>`, () => {
+      el("m-go").onclick = async () => {
+        const qty = Math.round(Number(el("i-qty").value));
+        if (!(qty > 0)) { toast("Enter a quantity", true); return; }
+        closeModal();
+        try {
+          await api(`/inventory/${item.id}/restock?qty=${qty}`, { method: "POST" });
+          await refresh();
+          toast(`+${qty} ${item.name}`);
+        } catch (error) { toast(error.message, true); }
+      };
+    });
+  }
+
+  /** Sell an item onto an open tab. Only stocked, non-archived items are offered; a
+   *  sold-out one is shown disabled rather than hidden, so the manager sees it exists
+   *  and needs restocking rather than wondering where it went. */
+  function promptSellItem(unit) {
+    const sellable = state.inventory.filter((i) => !i.archived);
+
+    if (!sellable.length) {
+      toast("No items on the shelf yet — add some in Inventory", true);
+      return;
+    }
+
+    const rows = sellable.map((item) => `
+      <button class="sellrow" data-sell="${esc(item.id)}" type="button" ${item.stock_qty === 0 ? "disabled" : ""}>
+        <span class="sellrow__name">${esc(item.name)}
+          ${item.is_low ? `<span class="lowtag">${item.stock_qty === 0 ? "out" : "low"}</span>` : ""}</span>
+        <span class="sellrow__meta">${esc(item.unit_price || rupees(item.unit_price_paise))} · ${item.stock_qty} left</span>
+      </button>`).join("");
+
+    openModal(`Add to ${unit.name}`, `
+      <div class="selllist">${rows}</div>
+      <p class="modal__note">Tap an item to add one to the tab. It shows on the bill and
+        comes off the shelf straight away.</p>`, () => {
+      document.querySelectorAll("[data-sell]").forEach((btn) => {
+        btn.onclick = async () => {
+          const itemId = btn.dataset.sell;
+          const item = findItem(itemId);
+          closeModal();
+          await act(unit.id, `${item.name} added to ${unit.name}`, () =>
+            api(`/sessions/${unit.current_session_id}/items`, {
+              method: "POST", body: JSON.stringify({ item_id: itemId, qty: 1 }),
+            }));
+        };
+      });
+    });
   }
 
   function renderFooter() {
@@ -1034,6 +1225,10 @@
     // Held longest of all. It is the only enforcement a pool table has, and it is on
     // screen precisely when nothing else is going to stop the unit running on.
     overdue:             { icon: "i-overtime", tone: "over",  hold: 15000 },
+
+    // The shelf running down. Not urgent like a locked unit, but it needs restocking
+    // before the item is gone, so it holds a while.
+    low_stock:           { icon: "i-box",      tone: "warn",  hold: 12000 },
   };
 
   let alertStream = null;
@@ -1169,6 +1364,14 @@
     const chip = event.target.closest("[data-state]");
     if (chip) { state.filterState = chip.dataset.state; render(); return; }
 
+    const inv = event.target.closest("[data-inv]");
+    if (inv) {
+      const item = findItem(inv.dataset.item);
+      if (item && inv.dataset.inv === "restock") promptRestock(item);
+      if (item && inv.dataset.inv === "edit") promptEditItem(item);
+      return;
+    }
+
     const button = event.target.closest("[data-act]");
     if (!button) return;
 
@@ -1180,12 +1383,14 @@
       case "end":       promptEnd(unit); break;
       case "extend":    extendSession(unit, 15); break;
       case "extend30":  extendSession(unit, 30); break;
+      case "item":      promptSellItem(unit); break;
       case "maint-on":  setMaintenance(unit, true); break;
       case "maint-off": setMaintenance(unit, false); break;
     }
   });
 
   el("addBtn").onclick = promptAddUnit;
+  el("addItemBtn").onclick = promptAddItem;
   el("search").oninput = (e) => { state.query = e.target.value; render(); };
   el("zoneFilter").onchange = (e) => { state.filterZone = e.target.value; render(); };
   el("typeFilter").onchange = (e) => { state.filterType = e.target.value; savePrefs(); render(); };
