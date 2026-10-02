@@ -98,7 +98,7 @@ button { font-family: inherit; }
 
 /* ---------- Topbar ---------- */
 .topbar {
-  position: sticky; top: 0; z-index: 20;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
   display: flex; align-items: center; gap: 20px;
   padding: 16px 0;
   background: color-mix(in srgb, var(--plane) 88%, transparent);
@@ -223,7 +223,7 @@ button { font-family: inherit; }
 .select select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
 
 /* ---------- Grid & cards ---------- */
-.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
 .card {
   position: relative; background: var(--surface); border: 1px solid var(--hairline);
   border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px;
@@ -344,7 +344,7 @@ button { font-family: inherit; }
   .tile--hero { grid-column: span 3; }
 }
 @media (max-width: 720px) {
-  .app { padding: 0 14px 40px; }
+  .app { padding: 0 16px 40px; }
   .topbar { flex-wrap: wrap; }
   .search { min-width: 0; flex: 1; }
   .topbar__tools { width: 100%; }

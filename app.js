@@ -380,6 +380,20 @@
     if (e.key === "Escape" && !modalHost.hidden) closeModal();
   });
 
+  // In-page confirm (native confirm() is blocked in sandboxed/artifact frames)
+  function confirmAction(opts) {
+    openModal(opts.title || "Confirm",
+      '<p style="margin:2px 0 18px;color:var(--ink-2);font-size:14px;line-height:1.55">' + esc(opts.message) + "</p>" +
+      '<div class="modal__actions">' +
+        '<button class="btn btn--ghost" data-close type="button">Cancel</button>' +
+        '<button class="btn ' + (opts.danger ? "btn--danger" : "btn--primary") + '" id="confirm-go" type="button">' + esc(opts.confirmLabel || "Confirm") + "</button>" +
+      "</div>");
+    $("#confirm-go").addEventListener("click", function () {
+      closeModal();
+      if (typeof opts.onConfirm === "function") opts.onConfirm();
+    });
+  }
+
   function openStartSession(u) {
     openModal("Start session · " + u.id,
       '<div class="field">' +
@@ -462,10 +476,16 @@
     });
     $("#d-edit").addEventListener("click", function () { openEdit(u); });
     $("#d-del").addEventListener("click", function () {
-      if (confirm("Delete " + u.id + " (" + u.name + ")? This cannot be undone.")) {
-        state.units = state.units.filter(function (x) { return x.id !== u.id; });
-        closeModal(); render(); toast(u.id + " deleted");
-      }
+      confirmAction({
+        title: "Delete " + u.id,
+        message: "Delete " + u.id + " (" + u.name + ")? This can't be undone.",
+        confirmLabel: "Delete",
+        danger: true,
+        onConfirm: function () {
+          state.units = state.units.filter(function (x) { return x.id !== u.id; });
+          render(); toast(u.id + " deleted");
+        }
+      });
     });
   }
 
@@ -598,14 +618,20 @@
   $("#zoneFilter").addEventListener("change", function (e) { filters.zone = e.target.value; renderGrid(); });
   $("#sortBy").addEventListener("change", function (e) { filters.sort = e.target.value; renderGrid(); });
   $("#seedBtn").addEventListener("click", function () {
-    if (confirm("Reset all units and session history to the demo data?")) {
-      state = seed();
-      filters = { status: "all", zone: "all", search: "", sort: "id" };
-      $("#search").value = "";
-      $("#sortBy").value = "id";
-      render();
-      toast("Demo data reset");
-    }
+    confirmAction({
+      title: "Reset demo data",
+      message: "Reset all units and session history back to the demo fleet?",
+      confirmLabel: "Reset",
+      danger: true,
+      onConfirm: function () {
+        state = seed();
+        filters = { status: "all", zone: "all", search: "", sort: "id" };
+        $("#search").value = "";
+        $("#sortBy").value = "id";
+        render();
+        toast("Demo data reset");
+      }
+    });
   });
 
   $("#footStamp").textContent = "Prototype · " + new Date().toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
