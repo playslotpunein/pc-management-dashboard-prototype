@@ -138,24 +138,6 @@
         </div>
       </section>
 
-      <!-- The dense layout's replacement for the six-tile row: the two figures that
-           actually change during a shift, and the one count a manager acts on. Every
-           other tile below restates something the chip row already says. Hidden in the
-           classic layout; the tiles are hidden in the dense one. -->
-      <section class="topline" aria-label="Floor summary">
-        <div class="topline__figures">
-          <span class="figure">
-            <span class="figure__label">Owed on the floor</span>
-            <b class="figure__value figure__value--live" id="tlLive">—</b>
-          </span>
-          <span class="figure">
-            <span class="figure__label">Taken today</span>
-            <b class="figure__value" id="tlClosed">—</b>
-          </span>
-        </div>
-        <span class="topline__attention" id="tlAttention" hidden></span>
-      </section>
-
       <section class="stats" aria-label="Floor summary">
         <article class="tile tile--hero">
           <span class="tile__icon" aria-hidden="true"><svg width="16" height="16"><use href="#i-active"/></svg></span>
@@ -187,9 +169,8 @@
       </section>
 
       <section class="dist" aria-label="Status distribution">
-        <!-- Suite layout only: the occupancy figure and the money read out either side of
-             the bar, so the strip answers "how full, and what is it worth" on one line.
-             The bar and its legend are the same ones the other layouts use. -->
+        <!-- The occupancy figure and the money read out either side of the bar, so the
+             strip answers "how full, and what is it worth" on one line. -->
         <div class="dist__lead">
           <b id="stripPct">—</b>
           <span>Occupancy</span>
