@@ -2,18 +2,18 @@
 
 The server mounts the dashboard, so a stylesheet that contradicts itself ships with it.
 
-The manager picks from four named themes, each a ``[data-palette]`` block that sets the
-whole palette in one place. Two properties matter and neither is visible by looking at
-one screen:
+The manager picks from two named themes, Indigo and Slate, each a ``[data-palette]``
+block that sets the whole palette in one place. Two properties matter and neither is
+visible by looking at one screen:
 
 * **Every palette is complete.** A palette that forgets ``--st-locked`` doesn't error —
   it silently inherits the previous theme's red, so switching themes half-changes the
   floor. This asserts each palette declares the full token set.
 
-* **The three dark themes share one status ramp.** The whole promise of the picker is
-  that switching theme never changes what a colour *means* — "locked" is the same red in
-  Midnight, Indigo and Slate. This asserts those three declare byte-identical ``--st-*``
-  values, so a manager never has to relearn the ramp.
+* **Both themes share one status ramp.** The whole promise of the picker is that
+  switching theme never changes what a colour *means* — "locked" is the same red in
+  Indigo and Slate. This asserts the two declare byte-identical ``--st-*`` values, so a
+  manager never has to relearn the ramp.
 
 An earlier version checked that a light block and a system-dark block agreed, back when a
 theme was a light/dark toggle. That whole class of bug is gone now that a palette is
@@ -34,16 +34,14 @@ STYLES = Path(__file__).resolve().parents[2] / "dashboard" / "styles.css"
 RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 DECLARATION = re.compile(r"(--[\w-]+)\s*:\s*([^;]+);")
 
-#: The names of the four themes, and the selector each is declared under. Daylight shares
+#: The names of the two themes, and the selector each is declared under. Indigo shares
 #: its rule with :root (it is also the no-JS default).
 PALETTES = {
-    "daylight": re.compile(r'^\[data-palette="daylight"\]$'),
-    "midnight": re.compile(r'^\[data-palette="midnight"\]$'),
     "indigo": re.compile(r'^\[data-palette="indigo"\]$'),
     "slate": re.compile(r'^\[data-palette="slate"\]$'),
 }
 
-DARK = ("midnight", "indigo", "slate")
+DARK = ("indigo", "slate")
 
 #: Every token a palette must set for the page to be fully coloured by it alone.
 REQUIRED = {
@@ -54,6 +52,9 @@ REQUIRED = {
     "--st-available", "--st-scheduled", "--st-active",
     "--st-warning", "--st-overtime", "--st-locked", "--st-maintenance",
     "--ut-pc", "--ut-ps5", "--ut-sim", "--ut-pool", "--ut-snooker",
+    # The suite layout's primary button and headline. These were literals once, and
+    # Slate wore Indigo's violet; as tokens, a palette that skips them inherits Indigo's.
+    "--cta-top", "--cta-bottom", "--hero-from", "--hero-to",
 }
 
 STATUS = tuple(t for t in REQUIRED if t.startswith("--st-"))
@@ -111,13 +112,28 @@ class TestTheDarkThemesShareOneStatusRamp:
             "to be constant so only the ground and accent change between them"
         )
 
-    def test_daylight_has_its_own_ramp(self, palettes):
-        """Light needs darker status hues for contrast on white; it is not the dark ramp.
 
-        Guards the opposite mistake: sharing the dark ramp onto the light ground, where
-        several of the hues would fail contrast.
+class TestOnlyShippedPalettesRemain:
+    def test_retired_palettes_are_gone(self, css):
+        """Daylight and Midnight were retired. A leftover block would be dead weight, and
+        a leftover selector would quietly restyle anything that still carried the name."""
+        for name in ("daylight", "midnight"):
+            assert f'data-palette="{name}"' not in css, f"{name} palette still declared"
+
+    def test_the_default_on_root_is_indigo(self, css):
+        """With no JS — or before it runs — the page must come up in a shipped theme.
+
+        Reads the selector list with comments stripped: the comment above the block says
+        ":root" too, and matching that would pass with the selector itself gone.
         """
-        shared_dark = {palettes["midnight"][t] for t in STATUS}
-        daylight = {palettes["daylight"][t] for t in STATUS}
+        for prelude, body in RULE.findall(css):
+            selector = re.sub(r"/\*.*?\*/", "", prelude, flags=re.S).strip()
+            parts = {part.strip() for part in selector.split(",")}
 
-        assert not (shared_dark & daylight), "daylight reuses dark-mode status hues"
+            if ":root" in parts and "--plane" in body:
+                assert '[data-palette="indigo"]' in parts, (
+                    f"the :root default palette is {sorted(parts)}, not Indigo"
+                )
+                return
+
+        pytest.fail("no palette is declared on :root, so the page has no default colours")

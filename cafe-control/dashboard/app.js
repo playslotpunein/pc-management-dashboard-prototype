@@ -72,7 +72,7 @@
 
   const state = {
     view: "floor",
-    preset: "daylight",
+    preset: "indigo",
     units: [],
     sales: null,
     summary: null,
@@ -1401,10 +1401,6 @@
    *  attributes so the two concerns stay separable, even though the manager picks a
    *  bundle. Order here is the order they appear in the picker. */
   const PRESETS = {
-    daylight: { layout: "dense", palette: "daylight", label: "Daylight",
-                blurb: "Bright and cool, for a well-lit counter." },
-    midnight: { layout: "dense", palette: "midnight", label: "Midnight",
-                blurb: "Warm near-black, for a dim gaming café." },
     indigo:   { layout: "suite", palette: "indigo",   label: "Indigo",
                 blurb: "Deep navy with a violet accent and a rail." },
     slate:    { layout: "suite", palette: "slate",    label: "Slate",
@@ -1412,7 +1408,7 @@
   };
 
   function applyPreset(name) {
-    const preset = PRESETS[name] ? name : "daylight";
+    const preset = PRESETS[name] ? name : "indigo";
     const root = document.documentElement;
 
     root.dataset.preset = preset;
@@ -1451,19 +1447,10 @@
     if (saved.filterType) state.filterType = saved.filterType;
     if (PERIODS.some((p) => p.key === saved.salesPeriod)) state.salesPeriod = saved.salesPeriod;
 
-    // Preset resolution, in order of preference: a saved preset; the old light/dark
-    // toggle migrated (dark → Midnight, light → Daylight); otherwise the OS setting
-    // decides the first-run default so a dim café does not open blinding white.
-    let preset = PRESETS[saved.preset] ? saved.preset : null;
-
-    if (!preset && saved.theme) preset = saved.theme === "dark" ? "midnight" : "daylight";
-
-    if (!preset) {
-      preset = window.matchMedia?.("(prefers-color-scheme: dark)").matches
-        ? "midnight" : "daylight";
-    }
-
-    applyPreset(preset);
+    // A saved preset if it is one we still ship, otherwise Indigo. Daylight and Midnight
+    // were retired, so a browser that saved either — or the light/dark toggle from before
+    // presets — lands on the default instead of an unstyled page.
+    applyPreset(PRESETS[saved.preset] ? saved.preset : "indigo");
   }
 
   /** The picker. A row per theme: a live swatch of that theme's ground, accent and three

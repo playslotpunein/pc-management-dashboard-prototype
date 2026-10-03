@@ -6,17 +6,17 @@
 /* ============================================================================
    Palettes  ·  [data-palette]
    ----------------------------------------------------------------------------
-   Four named themes the venue manager chooses from. A palette sets the ground,
-   the ink, the brand accent and the two colour systems (status + type). What it
-   never changes is what a colour MEANS: the status ramp and the type dots are
-   identical across the three dark themes — validated once — so switching theme
-   never makes a manager relearn "locked". Only the ground and the accent move.
+   Two named themes the venue manager chooses from, both dark. A palette sets the
+   ground, the ink, the brand accent and the two colour systems (status + type).
+   What it never changes is what a colour MEANS: the status ramp and the type dots
+   are identical in both — validated once — so switching theme never makes a
+   manager relearn "locked". Only the ground and the accent move.
 
-   Daylight is the default and lives on :root; the others override. Tints derive
-   from the base tokens by color-mix, so a palette supplies seven status hues and
-   five type hues and nothing else has to be kept in sync. Each dark palette's
-   status ramp was checked against its own surface with the dataviz validator —
-   the shared ramp clears CVD, normal-vision and contrast on all three grounds.
+   Indigo is the default and lives on :root; Slate overrides. Tints derive from
+   the base tokens by color-mix, so a palette supplies seven status hues and five
+   type hues and nothing else has to be kept in sync. The shared status ramp was
+   checked against each palette's own surface with the dataviz validator, and
+   clears CVD, normal-vision and contrast on both grounds.
    ============================================================================ */
 :root {
   --radius: 14px;
@@ -37,42 +37,10 @@
   --offline-t:        color-mix(in srgb, var(--offline) 14%, transparent);
 }
 
-/* --- Daylight (default): bright, cool. For a well-lit counter. ---
+/* --- Indigo (default): deep navy, violet accent, a soft glow. The reference look. ---
    On :root as the no-JS default, and on the explicit selector so a swatch or any subtree
-   carrying data-palette="daylight" re-scopes to it just like the dark palettes do. */
-:root, [data-palette="daylight"] {
-  color-scheme: light;
-  --plane: #f4f4f1; --surface: #ffffff; --surface-2: #fafaf8;
-  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-  --hairline: rgba(11,11,11,.10); --hairline-2: rgba(11,11,11,.06);
-  --accent: #2a78d6; --ring: rgba(42,120,214,.35); --good-text: #006300;
-  --shadow: 0 1px 2px rgba(11,11,11,.05), 0 6px 20px rgba(11,11,11,.06);
-  --shadow-lg: 0 10px 40px rgba(11,11,11,.18);
-  --st-available:#0ca30c; --st-scheduled:#a21caf; --st-active:#2a78d6;
-  --st-warning:#c98500; --st-overtime:#d95926; --st-locked:#a11f2c; --st-maintenance:#64748b;
-  --available:#0ca30c; --in-use:#2a78d6; --maintenance:#fab219; --offline:#d03b3b;
-  --ut-pc:#4f7cff; --ut-ps5:#c94070; --ut-sim:#00a99d; --ut-pool:#8b4fd6; --ut-snooker:#a6740a;
-  --glow-a: transparent; --glow-b: transparent;
-}
-
-/* --- Midnight: warm near-black, blue accent. For a dim gaming cafe. --- */
-[data-palette="midnight"] {
-  color-scheme: dark;
-  --plane:#0d0d0d; --surface:#191918; --surface-2:#1f1f1d;
-  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#8f8d86;
-  --hairline:rgba(255,255,255,.12); --hairline-2:rgba(255,255,255,.06);
-  --accent:#3987e5; --ring:rgba(57,135,229,.5); --good-text:#0ca30c;
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.4);
-  --shadow-lg:0 12px 48px rgba(0,0,0,.6);
-  --st-available:#10a310; --st-scheduled:#d55181; --st-active:#3987e5;
-  --st-warning:#d59400; --st-overtime:#e8703a; --st-locked:#e33d5c; --st-maintenance:#94a3b8;
-  --available:#12b512; --in-use:#3987e5; --maintenance:#fab219; --offline:#e05252;
-  --ut-pc:#5f7dfa; --ut-ps5:#e8618c; --ut-sim:#2ec4b6; --ut-pool:#b57bff; --ut-snooker:#d9a520;
-  --glow-a: transparent; --glow-b: transparent;
-}
-
-/* --- Indigo: deep navy, violet accent, a soft glow. The reference look. --- */
-[data-palette="indigo"] {
+   carrying data-palette="indigo" re-scopes to it just as Slate does. */
+:root, [data-palette="indigo"] {
   color-scheme: dark;
   --plane:#08080f; --surface:#101018; --surface-2:#15151f;
   --ink:#f4f4f7; --ink-2:#a9a9bd; --muted:#6f6f87;
@@ -85,6 +53,7 @@
   --ut-pc:#5f7dfa; --ut-ps5:#e8618c; --ut-sim:#2ec4b6; --ut-pool:#b57bff; --ut-snooker:#d9a520;
   --glow-a: color-mix(in srgb, var(--accent) 14%, transparent);
   --glow-b: color-mix(in srgb, #22c98a 7%, transparent);
+  --cta-top:#8b83ff; --cta-bottom:#6a61f0; --hero-from:#8f86ff; --hero-to:#63d8b0;
 }
 
 /* --- Slate: cool graphite, teal accent. A calmer, instrument-like dark. --- */
@@ -101,14 +70,15 @@
   --ut-pc:#5f7dfa; --ut-ps5:#e8618c; --ut-sim:#2ec4b6; --ut-pool:#b57bff; --ut-snooker:#d9a520;
   --glow-a: color-mix(in srgb, var(--accent) 13%, transparent);
   --glow-b: transparent;
+  --cta-top:#17a597; --cta-bottom:#0b7a70; --hero-from:#3fd6c6; --hero-to:#8ab8ff;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
   font-family: var(--font);
-  /* The glow is a palette token: Indigo and Slate set it, the others leave it
-     transparent, so this one rule is flat ground or an ambient wash by theme. */
+  /* The glow is a palette token, so this one rule gives each theme its own ambient wash:
+     Indigo's violet-and-green, Slate's teal. */
   background:
     radial-gradient(900px 520px at 20% -8%, var(--glow-a), transparent 62%),
     radial-gradient(720px 440px at 98% 2%, var(--glow-b), transparent 60%),
@@ -179,15 +149,9 @@ button { font-family: inherit; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .btn svg { flex: none; }
 
-/* The theme button shows a sun on the light palette and a moon on the dark ones. It no
-   longer toggles — it opens the palette picker — but the glyph still reflects the ground. */
-.only-dark { display: none; }
-[data-palette="midnight"] .only-dark,
-[data-palette="indigo"] .only-dark,
-[data-palette="slate"] .only-dark { display: inline; }
-[data-palette="midnight"] .only-light,
-[data-palette="indigo"] .only-light,
-[data-palette="slate"] .only-light { display: none; }
+/* The theme button's glyph reflects the ground. Both themes are dark, so it is always
+   the sun; the light-ground glyph stays in the markup, hidden, for a light theme later. */
+.only-light { display: none; }
 
 /* ---------- Stat tiles ---------- */
 .stats {
@@ -283,18 +247,12 @@ button { font-family: inherit; }
   padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
 }
 .badge svg { width: 13px; height: 13px; }
-.badge--available { background: var(--available-t); color: var(--good-text); }
+/* Full-strength text on the tint: on a dark ground the amber and the green read better
+   at full strength than darkened, and both themes are dark. */
+.badge--available { background: var(--available-t); color: var(--available); }
 .badge--in-use { background: var(--in-use-t); color: var(--in-use); }
-.badge--maintenance { background: var(--maintenance-t); color: #8a6100; }
+.badge--maintenance { background: var(--maintenance-t); color: var(--maintenance); }
 .badge--offline { background: var(--offline-t); color: var(--offline); }
-/* On a dark ground the amber maintenance badge and the green available one read better
-   at full strength than as the darkened light-mode text colour. */
-[data-palette="midnight"] .badge--maintenance,
-[data-palette="indigo"] .badge--maintenance,
-[data-palette="slate"] .badge--maintenance { color: var(--maintenance); }
-[data-palette="midnight"] .badge--available,
-[data-palette="indigo"] .badge--available,
-[data-palette="slate"] .badge--available { color: var(--available); }
 
 .session {
   background: var(--surface-2); border: 1px solid var(--hairline-2);
@@ -897,8 +855,10 @@ button { font-family: inherit; }
 [data-layout="suite"] .topbar__tools { margin-left: 0; width: 100%; }
 [data-layout="suite"] .search { flex: 1; background: var(--surface); }
 [data-layout="suite"] .btn { background: var(--surface); }
+/* From the palette, not literals: hard-coded here it was Indigo's violet on every theme,
+   so Slate wore a violet button on a teal page. */
 [data-layout="suite"] .btn--primary {
-  background: linear-gradient(180deg, #8b83ff, #6a61f0); border-color: transparent;
+  background: linear-gradient(180deg, var(--cta-top), var(--cta-bottom)); border-color: transparent;
 }
 
 /* ---- Hero ---- */
@@ -916,7 +876,7 @@ button { font-family: inherit; }
    the first is just the noun. */
 .hero__title { font-size: 36px; font-weight: 560; letter-spacing: -.025em; line-height: 1.1; }
 .hero__title span {
-  background: linear-gradient(92deg, #8f86ff, #63d8b0);
+  background: linear-gradient(92deg, var(--hero-from), var(--hero-to));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .hero__sub { font-size: 13.5px; color: var(--ink-2); margin-top: 7px; }
