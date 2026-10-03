@@ -4,6 +4,54 @@
    ============================================================ */
 
 /* ============================================================================
+   Type  ·  Poppins, served from ./fonts
+   ----------------------------------------------------------------------------
+   Self-hosted rather than linked from Google Fonts: the dashboard runs on the
+   café's own control server and has to look the same with the internet down.
+   A linked font would fail silently offline and the page would fall back to
+   whatever the counter PC has.
+
+   Two subsets per weight, split by unicode-range so the browser only fetches
+   what a page uses. The ₹ sign is NOT in the Latin subset — it lives in
+   Latin Extended — so dropping the second file would render every price with
+   a fallback rupee glyph beside Poppins digits.
+
+   Three weights: 400, 600, 700. The stylesheet's in-between weights (520, 550,
+   650...) resolve upward to the nearest face, so a Medium (500) file would never
+   load. Licensed under the SIL OFL (fonts/OFL.txt).
+   ============================================================================ */
+@font-face {
+  font-family: "Poppins"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("fonts/poppins-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("fonts/poppins-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Poppins"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("fonts/poppins-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("fonts/poppins-latin-ext-600-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Poppins"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("fonts/poppins-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("fonts/poppins-latin-ext-700-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ============================================================================
    Palettes  ·  [data-palette]
    ----------------------------------------------------------------------------
    Two named themes the venue manager chooses from, both dark. A palette sets the
@@ -21,7 +69,7 @@
 :root {
   --radius: 14px;
   --radius-sm: 10px;
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font: "Poppins", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   /* Derived once, correct for every palette: a tint is its own base at low alpha. */
   --st-available-t:   color-mix(in srgb, var(--st-available) 15%, transparent);
@@ -89,7 +137,9 @@ body {
   line-height: 1.45;
 }
 h1, h2, h3, p { margin: 0; }
-button { font-family: inherit; }
+/* Form controls do not inherit the page font by default — a <select> would keep the
+   system face — so they are told to. */
+button, input, select, textarea { font-family: inherit; }
 
 .app { max-width: 1360px; margin: 0 auto; padding: 0 24px 48px; }
 
@@ -331,9 +381,12 @@ button { font-family: inherit; }
 @keyframes toastin { from { transform: translate(-50%, 8px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 
 /* ---------- Responsive ---------- */
+/* The hero spans are for the floor's tile row only. Unscoped they also caught the Sales
+   view's "Expected total", whose row is a single auto-fit column on a phone: the span
+   conjured a phantom second column and squeezed "Owed on the floor" to 36px. */
 @media (max-width: 1080px) {
   .stats { grid-template-columns: repeat(3, 1fr); }
-  .tile--hero { grid-column: span 3; }
+  .stats:not(.stats--three) .tile--hero { grid-column: span 3; }
 }
 @media (max-width: 720px) {
   .app { padding: 0 14px 40px; }
@@ -343,7 +396,7 @@ button { font-family: inherit; }
   .btn span { display: none; }
   .btn--primary span { display: inline; }
   .stats { grid-template-columns: repeat(2, 1fr); }
-  .tile--hero { grid-column: span 2; }
+  .stats:not(.stats--three) .tile--hero { grid-column: span 2; }
   .controls { flex-direction: column; align-items: stretch; }
   .controls__right { justify-content: space-between; }
   .field__row, .detail__grid { grid-template-columns: 1fr; }
@@ -795,7 +848,16 @@ button { font-family: inherit; }
 /* Scoped off .stats--three, which is the Sales view's three-tile row. Unscoped, these
    hid its "Owed on the floor" and "Expected total" and left a single orphan tile — the
    floor's summary and the shift report share a class and do not share a shape. */
-[data-layout="suite"] .stats:not(.stats--three) { grid-template-columns: repeat(5, 1fr); gap: 12px; }
+[data-layout="suite"] .stats:not(.stats--three) { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+
+/* On a phone five across is 56px a tile, so they pair up; "Needs attention", the one
+   with an action attached, takes the odd row to itself rather than sitting orphaned.
+   Without this the suite's five columns outrank the generic .stats breakpoint and the
+   money figures were cut off. */
+@media (max-width: 720px) {
+  [data-layout="suite"] .stats:not(.stats--three) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  [data-layout="suite"] .stats:not(.stats--three) .tile--attention { grid-column: 1 / -1; }
+}
 [data-layout="suite"] .stats:not(.stats--three) .tile--hero,
 [data-layout="suite"] .stats:not(.stats--three) .tile:nth-child(2) { display: none; }
 
@@ -807,12 +869,17 @@ button { font-family: inherit; }
   background: rgba(242,84,125,.14); color: var(--st-locked);
   border-color: rgba(242,84,125,.28);
 }
+/* Each tile is a size container so its figure can scale to the tile rather than spill
+   out of it. "₹1,872.00" needs about 4.3x its font size in width; at 34px that is 145px,
+   which a five-across tile only has on a wide screen. min() keeps 34px wherever it fits
+   and shrinks the figure only when the tile is genuinely too narrow. */
 [data-layout="suite"] .tile {
   background: var(--surface); border: 1px solid var(--hairline);
   border-radius: 14px; padding: 16px 17px; gap: 0;
+  container-type: inline-size; min-width: 0;
 }
 [data-layout="suite"] .tile--hero { background: var(--surface); }
-[data-layout="suite"] .tile--hero .tile__value { font-size: 34px; }
+[data-layout="suite"] .tile--hero .tile__value { font-size: min(34px, 20cqi); }
 .tile__icon {
   width: 32px; height: 32px; border-radius: 9px; margin-bottom: 14px;
   display: none; place-items: center;
@@ -821,7 +888,8 @@ button { font-family: inherit; }
 }
 [data-layout="suite"] .tile__icon { display: grid; }
 [data-layout="suite"] .tile__value {
-  font-size: 34px; font-weight: 560; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+  font-size: min(34px, 20cqi); font-weight: 560; letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 [data-layout="suite"] .tile__label {
   order: 3; font-size: 9.5px; font-weight: 700; letter-spacing: .15em;
